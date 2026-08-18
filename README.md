@@ -15,11 +15,19 @@ Three steps: install the plugin, tell it your Hypernode token, restart Claude Co
 Type this directly into Claude Code (no terminal needed):
 
 ```
-/plugin marketplace add ProxiBlue/pb-hypernode-mcp
+/plugin marketplace add ProxiBlue/pb-hypernode-mcp@latest
 /plugin install pb-hypernode-mcp@pb-hypernode-mcp
 ```
 
 Claude Code fetches everything straight from GitHub — no downloading, no separate server to run, nothing to clone by hand.
+
+`@latest` pins you to the newest tested release rather than whatever's mid-development on `main`. To pin to a specific version instead (for reproducibility, e.g. across a team), use its tag directly:
+
+```
+/plugin marketplace add ProxiBlue/pb-hypernode-mcp@v0.1.0
+```
+
+See [Releases](https://github.com/ProxiBlue/pb-hypernode-mcp/releases) for available versions. To move onto a newer release later, re-run the `marketplace add` command with the new tag, or run `/plugin marketplace update` to refresh `@latest`.
 
 (If you'd rather run it from a terminal instead, the same commands work as `claude plugin marketplace add ...` / `claude plugin install ...`.)
 
@@ -160,6 +168,19 @@ claude plugin install pb-hypernode-mcp@pb-hypernode-mcp
 After editing skills or server code, run `claude plugin update pb-hypernode-mcp@pb-hypernode-mcp` to pick up the change without re-adding the marketplace.
 
 If the plugin doesn't show up after installing, check: `claude plugin list` shows `pb-hypernode-mcp` as enabled; a fresh Claude Code session lists the `brancher_*` tools and the three `brancher-*` skills; `HYPERNODE_API_TOKENS` is set in the same shell you launched Claude Code from.
+
+### Cutting a release
+
+Bump `version` in `pyproject.toml`, then:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+git tag -f latest        # move the floating tag to this commit
+git push origin latest --force
+```
+
+`vX.Y.Z` tags are permanent and never move. `latest` always points at the newest one — that's the only tag ever force-pushed.
 
 ## License
 
