@@ -1,0 +1,32 @@
+{
+  "name": "pb-hypernode-mcp",
+  "version": "0.1.0",
+  "description": "Client-side Claude Code plugin for Hypernode Brancher — spin up disposable prod-clone preview environments, drive AI-assisted changes over SSH, view via browser MCP. Bundles an MCP server (brancher_create/list/delete/ssh_info/exec/put tools) plus three skills (brancher-spinup, brancher-preview, brancher-cleanup) orchestrating the spin-up to cleanup lifecycle. Mandatory automatic PII/gateway sanitization on every created node.",
+  "author": {
+    "name": "Lucas van Staden",
+    "email": "lucas@proxiblue.com.au"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "hypernode",
+    "brancher",
+    "mcp",
+    "preview-environment",
+    "ssh",
+    "magento"
+  ],
+  "userConfig": {
+    "hypernode_api_token_env": {
+      "type": "string",
+      "title": "HYPERNODE_API_TOKEN env var name",
+      "description": "Name of the environment variable holding your Hypernode API token. The server reads this env var directly at process start and never writes it to disk or stores it in plugin config — set the real token in your shell BEFORE starting Claude Code, never here.",
+      "default": "HYPERNODE_API_TOKEN"
+    },
+    "hypernode_app_allowlist_env": {
+      "type": "string",
+      "title": "HYPERNODE_APP_ALLOWLIST env var name",
+      "description": "Name of the environment variable holding a comma-separated list of Hypernode <appname> values this plugin is permitted to operate against. brancher_create/delete/exec/put refuse any app not in this list. Set the actual list in your shell.",
+      "default": "HYPERNODE_APP_ALLOWLIST"
+    }
+  }
+}

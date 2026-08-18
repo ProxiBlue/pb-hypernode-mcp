@@ -1,0 +1,24 @@
+{
+  "name": "pb-hypernode-mcp",
+  "owner": {
+    "name": "Lucas van Staden",
+    "email": "lucas@proxiblue.com.au"
+  },
+  "plugins": [
+    {
+      "name": "pb-hypernode-mcp",
+      "source": "./",
+      "description": "Client-side Claude Code plugin for Hypernode Brancher — spin up disposable prod-clone preview environments, drive AI-assisted changes over SSH, view via browser MCP. Mandatory automatic PII/gateway sanitization on every created node, `-eph`-only exec guard, app allowlist.",
+      "version": "0.1.0",
+      "license": "Apache-2.0",
+      "keywords": [
+        "hypernode",
+        "brancher",
+        "mcp",
+        "preview-environment",
+        "ssh",
+        "magento"
+      ]
+    }
+  ]
+}

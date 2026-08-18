@@ -1,0 +1,132 @@
+# Manual test plan for pb-hypernode-mcp (Hypernode Brancher MCP + Skills).
+#
+# NOTE ON COVERAGE MODEL:
+# This plugin has NO browser UI of its own. It is a Python MCP server + Claude
+# Code skills. There are therefore NO Playwright real-UI specs, and NO story can
+# earn the fleet "AI" mark (which requires a Playwright spec driving a real page
+# and passing — see manual-test-plan/SKILL.md, #333 incident). The project's
+# automated tests are pytest unit tests with mocked HTTP and mocked SSH
+# subprocess calls — they do NOT exercise a real Hypernode account or a real
+# Brancher node, so they are the equivalent of a UI-bypassing test and cannot
+# stand in for real verification. Every story below is therefore HI (human
+# verified) and manual_only: true.
+#
+# Verification is CLI / MCP-tool-call based, not browser clicks. A "step" means:
+# install the plugin, invoke an MCP tool or skill from Claude Code (or run the
+# pytest suite / a shell command), and confirm the described output. Live-phase
+# stories require a REAL Hypernode Falcons account and spin up a real Brancher
+# node — these bill wall-clock minutes and clone production data, so run them
+# deliberately and delete the node after.
+ticket: 409
+plan_name: hypernode-brancher-mcp
+generated_at: "2026-08-18T00:00:00Z"
+phases:
+  - name: Pre-deployment (UAT — local / mocked, no billed Brancher minutes)
+    description: >
+      Stories verifiable with the plugin installed locally, against mocked or
+      production-shaped-but-not-live targets. No real Hypernode account and no
+      billed Brancher minutes required. Includes the safety-critical -eph
+      hostname guards, which MUST be confirmed here before any live phase.
+    stories:
+      - slug: mcp-server-starts-over-stdio
+        description: MCP server boots over stdio transport and reports its registered tools
+        expected: Server starts without error; tool list includes brancher_create/list/delete/ssh_info/exec/put
+        manual_only: true
+
+      - slug: config-error-without-api-token
+        description: Server raises a clear config error when HYPERNODE_API_TOKEN is unset
+        expected: Startup/first-call fails with an explicit "HYPERNODE_API_TOKEN not set" style error, not a stack trace
+        manual_only: true
+
+      - slug: app-allowlist-enforced
+        description: App allowlist loads from config; tool calls for a non-allowlisted app are rejected
+        expected: create/list/delete against an app not on the allowlist are refused with a clear message (typo cannot hit an unintended node)
+        manual_only: true
+
+      - slug: exec-rejects-non-eph-hostname
+        description: SAFETY-CRITICAL — brancher_exec refuses any target not matching *-eph* before opening any SSH connection
+        expected: exec against pps.hypernode.io and pps-staging.hypernode.io is rejected; guard is not bypassable via any flag or alternate path
+        manual_only: true
+
+      - slug: put-rejects-non-eph-hostname
+        description: SAFETY-CRITICAL — brancher_put applies the same -eph-only guard as exec
+        expected: put/sync against a bare appname or a non -eph hostname is rejected before any transfer starts
+        manual_only: true
+
+      - slug: delete-guard-and-missing-node
+        description: brancher_delete rejects non -eph node names and returns a clear error for a non-existent node
+        expected: Deletion refused for names not matching the -eph pattern; missing node yields a clear "not found" error, not a silent success
+        manual_only: true
+
+      - slug: create-pre-create-guardrails
+        description: brancher_create enforces mandatory label, allowlist, Falcons-plan eligibility, and surfaces remaining free minutes
+        expected: Call with no label rejected; non-allowlisted app rejected; non-Falcons plan fails with a clear message; remaining free minutes shown before creation commits
+        manual_only: true
+
+      - slug: sanitization-command-generation
+        description: Sanitization module generates the correct anonymize + sandbox command sequence from config, with no destructive statements
+        expected: Generates SQL to anonymize customer_entity / sales_order* / quote_payment PII and reset admin_user; generates bin/magento config:set to force payment gateway + ShipperHQ/AvaTax keys to sandbox; produces NO DROP/TRUNCATE; errors clearly on missing required config fields
+        manual_only: true
+
+      - slug: pytest-suite-green
+        description: Full pytest suite passes
+        expected: pytest exits 0; no decrease in coverage
+        manual_only: true
+
+      - slug: plugin-installs-via-seed-mount
+        description: Plugin installs cleanly via the marketplace seed-mount pattern
+        expected: claude plugin install/update pb-hypernode-mcp@pb-hypernode-mcp succeeds; manifest declares the MCP entrypoint, all three skills, and required env vars; NOTICE file present
+        manual_only: true
+
+      - slug: readme-documents-all
+        description: README documents install, config, every tool, all three skills, mandatory sanitization, and scope limits
+        expected: README covers seed-mount install, HYPERNODE_API_TOKEN, each MCP tool, spinup/preview/cleanup skills, the non-disableable sanitization/sandbox behavior, and the Magento/Mage-OS-only v1 limitation; renders correctly on GitHub
+        manual_only: true
+
+  - name: Live verification (real Hypernode Falcons account — billed wall-clock minutes, clones production data)
+    description: >
+      Stories requiring a real Hypernode Falcons account. These spin up a real
+      Brancher node that clones production's latest backup (live PII + real
+      credentials) and bill wall-clock minutes. Run deliberately; delete the
+      node when done. These cannot be automated without a real account and are
+      the reason the plugin exists — verify them by hand every release.
+    stories:
+      - slug: brancher-create-list-delete-e2e
+        description: A Brancher node can be created, listed, and deleted end-to-end via the MCP tools against a real account
+        expected: create returns an <app>-ephNNNNNN node name; list shows it with host and wall-clock minutes; delete removes it and it disappears from list
+        manual_only: true
+
+      - slug: exec-smoke-ssh-key-inheritance
+        description: Create a node, run brancher_exec whoami, confirming SSH keys inherit via the backup clone with no extra provisioning (RISK checkpoint)
+        expected: exec returns stdout/stderr/exit code; whoami succeeds using the client's local SSH agent — no separate key provisioning needed. If it fails, the SSH-inheritance assumption is refuted and task 007 scope grows
+        manual_only: true
+
+      - slug: sanitize-pii-on-real-node
+        description: After create, live customer PII on the node's DB is anonymized
+        expected: customer_entity (+ address/EAV), sales_order* name/email/address/payment, quote_payment/sales_order_payment tokens are anonymized, and admin_user credentials are reset to a known safe default — verified by querying the node's DB
+        manual_only: true
+
+      - slug: sandbox-gateways-on-real-node
+        description: After create, payment gateways and live third-party API keys are forced to sandbox on the node
+        expected: payment gateway environment (e.g. braintree/stripe) is sandbox; ShipperHQ / AvaTax keys are stubbed to sandbox/dummy values — verified via config on the node
+        manual_only: true
+
+      - slug: sanitization-non-bypassable
+        description: brancher_create does not report the node ready or return its URL until sanitization completes; there is no opt-out flag
+        expected: URL/access details are withheld until sanitization succeeds; a partway sanitization failure surfaces a clear failure state (never a "ready" node still carrying live data); no flag skips this
+        manual_only: true
+
+      - slug: spinup-skill-returns-access
+        description: brancher-spinup skill creates a fully-guarded node and returns URL + SSH info with guardrail context
+        expected: Skill reports node URL and SSH connection details, and surfaces label used / minutes remaining / allowlist-passed; a create-or-sanitize failure is surfaced clearly to the user
+        manual_only: true
+
+      - slug: preview-skill-full-loop
+        description: brancher-preview skill runs the full loop — apply change, build, screenshot, delete reminder
+        expected: Applies a local change via brancher_put, runs the Magento build sequence, screenshots the node URL via the existing browser MCP, and ends with an explicit "node still running / consuming minutes until deleted" reminder (no auto-delete)
+        manual_only: true
+
+      - slug: cleanup-age-threshold-delete
+        description: brancher-cleanup lists nodes by wall-clock minutes, flags nodes past the age threshold, and deletes them with confirmation
+        expected: Lists each node's minutes-used; flags nodes past the configurable wall-clock threshold (default ~4h); deletes a flagged node only after confirmation; supports bulk delete of all flagged; reports nothing-to-clean when none exceed the threshold
+        manual_only: true

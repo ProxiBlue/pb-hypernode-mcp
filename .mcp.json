@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "pb-hypernode-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "run",
+        "pb-hypernode-mcp"
+      ],
+      "description": "Hypernode Brancher MCP server — brancher_create/list/delete/ssh_info/exec/put tools for spinning up disposable prod-clone preview environments. Requires HYPERNODE_API_TOKEN set in the environment before Claude Code starts (read from env only, never written to disk or stored in plugin config). Optional HYPERNODE_APP_ALLOWLIST (comma-separated) restricts which Hypernode <appname> values these tools may target."
+    }
+  }
+}

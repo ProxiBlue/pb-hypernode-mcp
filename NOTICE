@@ -1,0 +1,31 @@
+pb-hypernode-mcp
+Copyright (c) 2026 Lucas van Staden / Proxiblue
+https://github.com/ProxiBlue/pb-hypernode-mcp
+
+This product includes software developed by
+Lucas van Staden / Proxiblue (https://www.proxiblue.com.au).
+
+------------------------------------------------------------------------
+
+This plugin orchestrates and depends on third-party software/services that
+are NOT redistributed in this repository — consumers provide or connect to
+these themselves:
+
+  * Hypernode Brancher API (Hypernode B.V.)
+    Consumer-provided Hypernode account + API token. No Hypernode source
+    code is bundled in this repository; this plugin is an independent
+    client speaking to the public Hypernode REST API
+    (https://api.hypernode.com/v2/).
+    https://www.hypernode.com/
+
+  * System `ssh`, `scp`, `rsync` binaries
+    Used to reach Brancher preview nodes over the consumer's own local SSH
+    agent/key. Not bundled — the plugin shells out to whatever is already
+    installed on the host. The plugin never holds or stores key material.
+
+  * MCP Python SDK (`mcp`), `httpx`, `pydantic` / `pydantic-settings`
+    Installed as ordinary PyPI dependencies via `pyproject.toml` /
+    `uv.lock`, not vendored into this repository. See their respective
+    upstream licenses for terms.
+
+See README.md for installation and configuration detail.
