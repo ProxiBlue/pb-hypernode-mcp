@@ -21,13 +21,20 @@ Type this directly into Claude Code (no terminal needed):
 
 Claude Code fetches everything straight from GitHub — no downloading, no separate server to run, nothing to clone by hand.
 
-`@latest` pins you to the newest tested release rather than whatever's mid-development on `main`. To pin to a specific version instead (for reproducibility, e.g. across a team), use its tag directly:
+`@latest` pins you to the newest tested release rather than whatever's mid-development on `main`. To pin to a specific version instead (for reproducibility, e.g. across a team), use its tag directly — check [Releases](https://github.com/ProxiBlue/pb-hypernode-mcp/releases) for the current version number, then:
 
 ```
-/plugin marketplace add ProxiBlue/pb-hypernode-mcp@v0.1.0
+/plugin marketplace add ProxiBlue/pb-hypernode-mcp@vX.Y.Z
 ```
 
-See [Releases](https://github.com/ProxiBlue/pb-hypernode-mcp/releases) for available versions. To move onto a newer release later, re-run the `marketplace add` command with the new tag, or run `/plugin marketplace update` to refresh `@latest`.
+**If Claude Code reports "already at the latest version" but you know a newer release exists**, it's comparing version numbers, not git commits — re-running `marketplace update` does nothing if the version string didn't change between releases. Remove and re-add the marketplace to force a fresh fetch:
+
+```
+/plugin marketplace remove pb-hypernode-mcp
+/plugin marketplace add ProxiBlue/pb-hypernode-mcp@latest
+/plugin install pb-hypernode-mcp@pb-hypernode-mcp
+/reload-plugins
+```
 
 (If you'd rather run it from a terminal instead, the same commands work as `claude plugin marketplace add ...` / `claude plugin install ...`.)
 
@@ -171,7 +178,7 @@ If the plugin doesn't show up after installing, check: `claude plugin list` show
 
 ### Cutting a release
 
-Bump `version` in `pyproject.toml`, then:
+Bump `version` in **both** `pyproject.toml` and `.claude-plugin/plugin.json` — Claude Code's `/plugin marketplace update` compares `plugin.json`'s version string, not the git commit. Moving `latest` without bumping this means installed users get told "already at the latest version" even though the underlying code changed. Then:
 
 ```bash
 git tag vX.Y.Z
