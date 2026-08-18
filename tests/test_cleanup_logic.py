@@ -17,8 +17,8 @@ NODES_RESPONSE = {
 }
 
 
-def make_settings(allowlist: str = 'myapp') -> Settings:
-    return Settings(hypernode_api_token='test-token', hypernode_app_allowlist=allowlist)
+def make_settings() -> Settings:
+    return Settings(hypernode_api_tokens={'myapp': 'test-token'})
 
 
 def make_client(handler) -> HypernodeApiClient:

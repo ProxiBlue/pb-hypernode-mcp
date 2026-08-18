@@ -31,29 +31,35 @@ apply that same `>=` rule when deciding what to show the user as "flagged".
 
 ## Flow
 
-1. **List.** Call `brancher_list` with the app name. Each node returned has
+1. **Identify which Hypernode/app.** If the user's request doesn't say which
+   app to target, call `brancher_apps` first and show the configured list —
+   never guess an `appname`. If exactly one app is configured, it's fine to
+   proceed with it; just tell the user which one you're using rather than
+   asking a pointless confirmation question. Only after this, move to step 2.
+
+2. **List.** Call `brancher_list` with the app name. Each node returned has
    `name`, `host`, and `minutes` (wall-clock minutes alive, not idle-aware).
 
-2. **Report full list with minutes.** Show the user every active node and
+3. **Report full list with minutes.** Show the user every active node and
    its `minutes` value, so they can see the cost being avoided by cleanup —
    not just the flagged subset.
 
-3. **Flag.** Apply the age-threshold rule (`minutes >= threshold_minutes`,
-   same logic as `flag_stale_nodes`) to the list from step 1.
+4. **Flag.** Apply the age-threshold rule (`minutes >= threshold_minutes`,
+   same logic as `flag_stale_nodes`) to the list from step 2.
 
    - If **no** nodes are flagged, tell the user there is nothing to clean up
      (name every node and its `minutes` so they can see why none qualified)
      and stop here. Do not call `brancher_delete`.
    - If one or more nodes are flagged, list them with their `minutes` and
-     move to step 4.
+     move to step 5.
 
-4. **Choose single vs. bulk.**
+5. **Choose single vs. bulk.**
 
    - **Single-node**: user wants to review/delete one flagged node at a
-     time. Go to step 5 for that one node.
-   - **Bulk**: user wants every flagged node gone in one pass. Go to step 6.
+     time. Go to step 6 for that one node.
+   - **Bulk**: user wants every flagged node gone in one pass. Go to step 7.
 
-5. **Single-node delete (confirm-before-delete).**
+6. **Single-node delete (confirm-before-delete).**
 
    a. Call `brancher_delete` with `node_name` set and `confirm` omitted
       (defaults to `False`). This returns the target node's details
@@ -66,14 +72,14 @@ apply that same `>=` rule when deciding what to show the user as "flagged".
    d. Repeat a-c for each additional node the user wants removed one at a
       time.
 
-6. **Bulk delete (confirm-before-delete-all).**
+7. **Bulk delete (confirm-before-delete-all).**
 
    a. Present the full flagged list (name, host, minutes) as the delete
       plan and ask the user to confirm deleting all of them in one pass.
    b. Only on explicit confirmation, delete each flagged node in turn by
       calling `brancher_delete` with `confirm: True` for each `node_name` in
       the flagged list. (Do not call the unconfirmed preview form per-node
-      here — the bulk plan shown in step 6a already served that purpose;
+      here — the bulk plan shown in step 7a already served that purpose;
       re-confirming per-node would just repeat the same question.)
    c. Report back which nodes were deleted.
 

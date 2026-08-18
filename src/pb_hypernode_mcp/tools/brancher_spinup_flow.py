@@ -36,7 +36,7 @@ from pb_hypernode_mcp.tools.brancher_exec import exec_command as default_exec_co
 ExecCommandFn = Callable[..., Awaitable[dict[str, Any]]]
 SleepFn = Callable[[float], Awaitable[None]]
 ClockFn = Callable[[], float]
-ClientFactory = Callable[[], tuple[HypernodeApiClient, tuple[str, ...]]]
+ClientFactory = Callable[[], HypernodeApiClient]
 
 DEFAULT_READY_PROBE_COMMAND = 'echo ready'
 DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS = 5.0
@@ -102,7 +102,6 @@ async def _wait_until_reachable(
 
 async def spinup_sanitized_brancher_node(
     client: HypernodeApiClient,
-    app_allowlist: tuple[str, ...],
     appname: str,
     labels: list[str],
     clear_services: list[str] | None = None,
@@ -118,7 +117,6 @@ async def spinup_sanitized_brancher_node(
     """Create a Brancher node, wait for it, sanitize it, and only then report it ready."""
     created = await create_brancher_node(
         client,
-        app_allowlist,
         appname,
         labels,
         clear_services,
@@ -178,10 +176,8 @@ def register(
     can inject fakes.
     """
 
-    def default_factory() -> tuple[HypernodeApiClient, tuple[str, ...]]:
-        settings = load_settings()
-
-        return HypernodeApiClient(settings), settings.app_allowlist
+    def default_factory() -> HypernodeApiClient:
+        return HypernodeApiClient(load_settings())
 
     factory = client_factory if client_factory is not None else default_factory
 
@@ -192,11 +188,10 @@ def register(
         clear_services: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a Brancher node, wait for it, sanitize it, and report it ready."""
-        client, app_allowlist = factory()
+        client = factory()
 
         return await spinup_sanitized_brancher_node(
             client,
-            app_allowlist,
             appname,
             labels,
             clear_services,

@@ -23,7 +23,9 @@ class FakeApiClient:
         FakeApiClient.instances += 1
         self._settings = settings
 
-    async def get(self, appname: str, path: str) -> dict[str, Any]:
+    async def get(
+        self, appname: str, path: str, *, token_appname: str | None = None
+    ) -> dict[str, Any]:
         return {
             'plan_type': 'falcons',
             'brancher_minutes_remaining': 5,
@@ -32,11 +34,18 @@ class FakeApiClient:
         }
 
     async def post(
-        self, appname: str, path: str, *, json: dict[str, Any] | None = None
+        self,
+        appname: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        token_appname: str | None = None,
     ) -> dict[str, Any]:
         return {'appname': 'myapp-eph1'}
 
-    async def delete(self, appname: str, path: str) -> dict[str, Any]:
+    async def delete(
+        self, appname: str, path: str, *, token_appname: str | None = None
+    ) -> dict[str, Any]:
         return {}
 
 
@@ -124,8 +133,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
     remediation) — calling `brancher_create` always runs the full sequence,
     which requires an SSH-reachable node, hence the subprocess mock below.
     """
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
@@ -157,8 +165,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
 async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_sanitization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
@@ -196,8 +203,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
 async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_always_runs_the_full_sanitize_before_ready_flow(  # noqa: E501
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
@@ -234,8 +240,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
 async def test_it_exposes_brancher_list_as_a_callable_mcp_tool_on_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     server = create_server()
@@ -253,8 +258,7 @@ async def test_it_exposes_brancher_list_as_a_callable_mcp_tool_on_the_server(
 async def test_it_exposes_brancher_delete_as_a_callable_mcp_tool_on_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     server = create_server()
@@ -272,7 +276,7 @@ async def test_it_exposes_brancher_delete_as_a_callable_mcp_tool_on_the_server(
 async def test_it_exposes_brancher_ssh_info_as_a_callable_mcp_tool_on_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     server = create_server()
@@ -292,7 +296,7 @@ async def test_it_exposes_brancher_ssh_info_as_a_callable_mcp_tool_on_the_server
 async def test_it_exposes_brancher_exec_as_a_callable_mcp_tool_on_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
         return FakeSubprocess()
@@ -317,7 +321,7 @@ async def test_it_exposes_brancher_exec_as_a_callable_mcp_tool_on_the_server(
 async def test_it_exposes_brancher_put_as_a_callable_mcp_tool_on_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
         return FakeSubprocess(stdout=b'sent 1 file\n')
@@ -348,8 +352,7 @@ async def test_it_exposes_brancher_put_as_a_callable_mcp_tool_on_the_server(
 async def test_it_constructs_a_single_shared_hypernode_api_client_reused_across_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'myapp')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
     FakeApiClient.instances = 0
 
@@ -368,3 +371,18 @@ async def test_it_constructs_a_single_shared_hypernode_api_client_reused_across_
     await server.call_tool('brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']})
 
     assert FakeApiClient.instances == 1
+
+
+async def test_it_exposes_brancher_apps_as_a_callable_mcp_tool_on_the_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token", "myapp2": "test-token2"}')
+
+    server = create_server()
+
+    tools = await server.list_tools()
+    assert 'brancher_apps' in [tool.name for tool in tools]
+
+    _content, result = await server.call_tool('brancher_apps', {})
+
+    assert result == {'result': ['myapp', 'myapp2']}

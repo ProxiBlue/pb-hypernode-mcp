@@ -4,22 +4,64 @@ from __future__ import annotations
 
 import pytest
 
-from pb_hypernode_mcp.config import ConfigError, load_settings
+from pb_hypernode_mcp.config import ConfigError, UnknownAppError, load_settings
 
 
-def test_it_raises_a_clear_config_error_when_hypernode_api_token_is_not_set(
+def test_it_parses_hypernode_api_tokens_as_a_json_appname_to_token_map(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv('HYPERNODE_API_TOKEN', raising=False)
-
-    with pytest.raises(ConfigError, match='HYPERNODE_API_TOKEN'):
-        load_settings()
-
-
-def test_it_loads_the_app_allowlist_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('HYPERNODE_API_TOKEN', 'test-token')
-    monkeypatch.setenv('HYPERNODE_APP_ALLOWLIST', 'appone, apptwo,appthree')
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp":"token1","myapp2":"token2"}')
 
     settings = load_settings()
 
-    assert settings.app_allowlist == ('appone', 'apptwo', 'appthree')
+    assert settings.token_for('myapp') == 'token1'
+    assert settings.token_for('myapp2') == 'token2'
+
+
+def test_it_raises_a_clear_config_error_when_hypernode_api_tokens_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv('HYPERNODE_API_TOKENS', raising=False)
+
+    with pytest.raises(ConfigError, match='HYPERNODE_API_TOKENS'):
+        load_settings()
+
+
+def test_it_raises_a_clear_config_error_when_hypernode_api_tokens_is_not_valid_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', 'not-json')
+
+    with pytest.raises(ConfigError, match='HYPERNODE_API_TOKENS'):
+        load_settings()
+
+
+def test_it_raises_a_clear_config_error_when_hypernode_api_tokens_is_not_a_flat_string_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": 123}')
+
+    with pytest.raises(ConfigError, match='HYPERNODE_API_TOKENS'):
+        load_settings()
+
+
+def test_it_lists_configured_apps_sorted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"zapp":"token1","aapp":"token2"}')
+
+    settings = load_settings()
+
+    assert settings.configured_apps == ('aapp', 'zapp')
+
+
+def test_it_raises_a_clear_error_listing_configured_apps_when_resolving_an_unconfigured_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp":"token1","myapp2":"token2"}')
+
+    settings = load_settings()
+
+    with pytest.raises(UnknownAppError, match='myapp3') as exc_info:
+        settings.token_for('myapp3')
+
+    assert 'myapp' in str(exc_info.value)
+    assert 'myapp2' in str(exc_info.value)

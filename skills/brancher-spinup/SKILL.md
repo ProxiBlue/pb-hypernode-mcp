@@ -18,23 +18,30 @@ exposes.
 
 ## Flow
 
-1. **Ask for a label if the user hasn't given one.** `brancher_create`
+1. **Identify which Hypernode/app.** Hypernode API tokens are scoped per
+   app, not account-wide — if the user's request doesn't say which app to
+   target, call `brancher_apps` first and show the configured list before
+   calling any other tool. Never guess an `appname`. If exactly one app is
+   configured, it's fine to proceed with it — just tell the user which one
+   you're using rather than asking a pointless confirmation question.
+
+2. **Ask for a label if the user hasn't given one.** `brancher_create`
    requires at least one label (e.g. a ticket number like `ticket-123` or a
    short description) — it is not optional, and the call will fail without
    one. Don't invent a label on the user's behalf; if they haven't mentioned
    a ticket/reason, ask.
 
-2. **Call `brancher_create`** with `appname`, `labels`, and optionally
+3. **Call `brancher_create`** with `appname`, `labels`, and optionally
    `clear_services` (defaults to clearing `cron` if omitted). This one call
    covers the entire create -> wait -> sanitize -> ready sequence — do not
    poll or call other tools in between.
 
-   - If the app is not in the configured allowlist, or not on a
-     Falcons-eligible plan, or no label was provided, the call fails
+   - If the app has no configured token (`HYPERNODE_API_TOKENS`), or is not
+     on a Falcons-eligible plan, or no label was provided, the call fails
      immediately before anything is created. Surface that error message to
      the user verbatim — it already explains which guardrail was tripped.
 
-3. **Report the guardrail context, not just the URL.** On success the tool
+4. **Report the guardrail context, not just the URL.** On success the tool
    returns:
 
    - `node_name` — the created node's Brancher name (`<appname>-eph<id>`)
@@ -50,8 +57,8 @@ exposes.
    node is safe to hand to a client and won't silently blow through the
    app's Brancher allowance.
 
-4. **Mention `brancher_ssh_info` for direct SSH access.** The URL from step
-   3 is enough for browsing, but if the user wants to SSH in directly (to
+5. **Mention `brancher_ssh_info` for direct SSH access.** The URL from step
+   4 is enough for browsing, but if the user wants to SSH in directly (to
    run commands, inspect logs, etc.), tell them they can call
    `brancher_ssh_info` with the returned `node_name` to get `host`, `user`,
    and `port`. Don't call it automatically — only mention it as the next
@@ -62,9 +69,9 @@ exposes.
 `brancher_create` can fail at three points, and the error message differs by
 which one:
 
-- **Pre-create guardrail** (missing label, app not allowlisted, app not
-  Falcons-eligible) — nothing was created; the app allowlist/plan is the
-  fix, or supply a label.
+- **Pre-create guardrail** (missing label, app has no configured token, app
+  not Falcons-eligible) — nothing was created; adding the app's token to
+  `HYPERNODE_API_TOKENS` or fixing its plan is the fix, or supply a label.
 - **Node never becomes SSH-reachable** (`NodeUnreachableTimeoutError`) — the
   node was created but never responded within the reachability timeout.
   Surface this plainly; it usually means retrying later or checking

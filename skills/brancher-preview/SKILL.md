@@ -14,7 +14,12 @@ minutes. This skill does not delete the node itself — that is
 
 ## Flow
 
-1. **Spin up the node.** Follow the `brancher-spinup` skill exactly (ask for
+1. **Identify which Hypernode/app, then spin up the node.** Follow the
+   `brancher-spinup` skill exactly, starting with its own first step: if the
+   user's request doesn't say which app to target, call `brancher_apps`
+   first, show the configured list, and ask before calling any other tool
+   (never guess an `appname`; if exactly one app is configured, proceed with
+   it and just note that). Then continue the `brancher-spinup` flow (ask for
    a label if missing, call `brancher_create`, report `node_name`,
    `minutes_remaining`, `access_url`, `status`, `sanitization_commands_run`).
    Do not reimplement or shortcut that create -> wait -> sanitize -> ready

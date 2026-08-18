@@ -24,7 +24,7 @@ from pb_hypernode_mcp.tools.brancher_spinup_flow import (
 )
 
 
-def make_client() -> HypernodeApiClient:
+def make_client(**tokens: str) -> HypernodeApiClient:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'GET':
             return httpx.Response(
@@ -35,7 +35,7 @@ def make_client() -> HypernodeApiClient:
         return httpx.Response(201, json={'appname': 'myapp-eph123456'})
 
     return HypernodeApiClient(
-        Settings(hypernode_api_token='test-token'),
+        Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),
         transport=httpx.MockTransport(handler),
     )
 
@@ -72,7 +72,6 @@ async def test_it_does_not_report_the_node_as_ready_until_sanitization_has_compl
 
     result = await spinup_sanitized_brancher_node(
         make_client(),
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
         sanitization_config=make_sanitization_config(),
@@ -92,7 +91,6 @@ async def test_it_runs_the_sanitization_command_sequence_exactly_once_per_create
 
     await spinup_sanitized_brancher_node(
         make_client(),
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
         sanitization_config=config,
@@ -128,7 +126,6 @@ async def test_it_surfaces_a_clear_failure_state_when_sanitization_fails_partway
     with pytest.raises(SanitizationFailedError) as exc_info:
         await spinup_sanitized_brancher_node(
             make_client(),
-            app_allowlist=('myapp',),
             appname='myapp',
             labels=['ticket-123'],
             sanitization_config=config,
@@ -146,7 +143,6 @@ async def test_it_does_not_return_the_nodes_access_url_when_sanitization_has_fai
     with pytest.raises(SanitizationFailedError) as exc_info:
         await spinup_sanitized_brancher_node(
             make_client(),
-            app_allowlist=('myapp',),
             appname='myapp',
             labels=['ticket-123'],
             sanitization_config=config,
@@ -181,7 +177,6 @@ async def test_it_times_out_with_a_clear_error_if_the_node_never_becomes_ssh_rea
     with pytest.raises(NodeUnreachableTimeoutError):
         await spinup_sanitized_brancher_node(
             make_client(),
-            app_allowlist=('myapp',),
             appname='myapp',
             labels=['ticket-123'],
             sanitization_config=make_sanitization_config(),
@@ -212,7 +207,7 @@ async def test_it_invokes_brancher_create_with_a_required_label_argument() -> No
     server = FastMCP(name='test-server')
     register(
         server,
-        client_factory=lambda: (make_client(), ('myapp',)),
+        client_factory=lambda: make_client(),
         exec_command=RecordingExec(),
     )
 
@@ -225,7 +220,7 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
     server = FastMCP(name='test-server')
     register(
         server,
-        client_factory=lambda: (make_client(), ('myapp',)),
+        client_factory=lambda: make_client(),
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
     )
@@ -243,14 +238,14 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
     }
 
 
-async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_allowlist_in_its_output() -> (
+async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured_app_in_its_output() -> (  # noqa: E501
     None
 ):
     exec_fn = RecordingExec()
     server = FastMCP(name='test-server')
     register(
         server,
-        client_factory=lambda: (make_client(), ('myapp',)),
+        client_factory=lambda: make_client(),
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
     )
@@ -268,21 +263,21 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_allowlist_
     }
 
     def reject_handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError('API must not be called for a disallowed app')
+        raise AssertionError('API must not be called for an app with no configured token')
 
     disallowed_client = HypernodeApiClient(
-        Settings(hypernode_api_token='test-token'),
+        Settings(hypernode_api_tokens={'otherapp': 'test-token'}),
         transport=httpx.MockTransport(reject_handler),
     )
     disallowed_server = FastMCP(name='test-server-disallowed')
     register(
         disallowed_server,
-        client_factory=lambda: (disallowed_client, ('otherapp',)),
+        client_factory=lambda: disallowed_client,
         sanitization_config=make_sanitization_config(),
         exec_command=RecordingExec(),
     )
 
-    with pytest.raises(ToolError, match='allowlist'):
+    with pytest.raises(ToolError, match='configured apps'):
         await disallowed_server.call_tool(
             'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
         )
@@ -293,7 +288,7 @@ async def test_it_surfaces_a_clear_error_to_the_user_if_creation_or_sanitization
     server = FastMCP(name='test-server')
     register(
         server,
-        client_factory=lambda: (make_client(), ('myapp',)),
+        client_factory=lambda: make_client(),
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
     )

@@ -1,16 +1,18 @@
 """brancher_delete MCP tool: delete a Hypernode Brancher preview node.
 
-Enforces the `-eph<id>` node-name pattern and the app allowlist (derived from
-the node name's appname prefix) before doing anything else, then requires an
-explicit `confirm=True` re-call — surfacing the target node's details on the
-first (unconfirmed) call — before issuing the DELETE request. See the
-`confirm-before-delete` note in Implementation Notes (plan doc) for the
-rationale behind picking a `confirm` flag over a separate two-step tool pair.
+Enforces the `-eph<id>` node-name pattern before doing anything else, then
+requires an explicit `confirm=True` re-call — surfacing the target node's
+details on the first (unconfirmed) call — before issuing the DELETE request.
+The node's parent `<appname>` (derived from the node name via
+`_guards.appname_from_node_name`) is used to resolve the correct API token;
+an app with no configured token raises `UnknownAppError` naturally, there is
+no separate allowlist check. See the `confirm-before-delete` note in
+Implementation Notes (plan doc) for the rationale behind picking a `confirm`
+flag over a separate two-step tool pair.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -18,24 +20,14 @@ from mcp.server.fastmcp import FastMCP
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
 from pb_hypernode_mcp.config import Settings
-from pb_hypernode_mcp.tools._guards import validate_eph_node_name
+from pb_hypernode_mcp.tools._guards import appname_from_node_name, validate_eph_node_name
 from pb_hypernode_mcp.tools.brancher_list import list_brancher_nodes
-
-_APPNAME_FROM_NODE_NAME_PATTERN = re.compile(r'^(?P<appname>.+)-eph[0-9]+$')
 
 ClientFactory = Callable[[], tuple[HypernodeApiClient, Settings]]
 
 
 class NodeNotFoundError(Exception):
     """Raised when the target Brancher node does not exist for its app."""
-
-
-def _appname_from_node_name(node_name: str) -> str:
-    """Derive the app's `<appname>` prefix from a validated `-eph<id>` node name."""
-    match = _APPNAME_FROM_NODE_NAME_PATTERN.match(node_name)
-    assert match is not None  # validated by validate_eph_node_name before this is called
-
-    return match.group('appname')
 
 
 async def delete_brancher_node(
@@ -54,7 +46,7 @@ async def delete_brancher_node(
     """
     validate_eph_node_name(node_name)
 
-    appname = _appname_from_node_name(node_name)
+    appname = appname_from_node_name(node_name)
     nodes = await list_brancher_nodes(appname, client=client, settings=settings)
     target = next((node for node in nodes if node['name'] == node_name), None)
 
@@ -72,7 +64,7 @@ async def delete_brancher_node(
             ),
         }
 
-    await client.delete(node_name, '')
+    await client.delete(node_name, '', token_appname=appname)
 
     return {
         'deleted': True,

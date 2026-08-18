@@ -27,15 +27,16 @@ cd /home/lucas/pb-hypernode-mcp && uv run pyright src tests
 ```
 src/pb_hypernode_mcp/
 ├── server.py          # MCP server entrypoint, stdio transport
-├── config.py          # env/config loading (HYPERNODE_API_TOKEN, app allowlist)
-├── api_client.py       # Hypernode REST API wrapper (task 002)
+├── config.py          # env/config loading (HYPERNODE_API_TOKENS: per-app token map)
+├── api_client.py       # Hypernode REST API wrapper, resolves token per-app (task 002/018)
 ├── tools/               # one module per MCP tool
 │   ├── brancher_create.py
 │   ├── brancher_list.py
 │   ├── brancher_delete.py
 │   ├── brancher_ssh_info.py
 │   ├── brancher_exec.py
-│   └── brancher_put.py
+│   ├── brancher_put.py
+│   └── brancher_apps.py
 └── sanitization/        # task 009 — config-driven PII/gateway sanitization
     ├── config.py
     └── commands.py
@@ -60,6 +61,6 @@ skills/                    # brancher-spinup, brancher-preview, brancher-cleanup
 
 ## Project-Specific Rules
 
-- No key material (SSH keys, tokens) ever written to disk by this plugin. `HYPERNODE_API_TOKEN` read from env only.
+- No key material (SSH keys, tokens) ever written to disk by this plugin. `HYPERNODE_API_TOKENS` (per-app JSON token map) read from env only.
 - `brancher_exec`/`brancher_put` shell out to system `ssh`/`scp`/`rsync` — never hand-roll SSH protocol handling, never accept/store a private key path as a first-class config option in v1 (client's local SSH agent only, per plan Architecture Notes).
 - Any code path that can reach `brancher_exec` or `brancher_delete` against a non-`-eph` hostname is a bug, not an edge case — treat guard-rail tests for these as blocking, never optional/skippable.

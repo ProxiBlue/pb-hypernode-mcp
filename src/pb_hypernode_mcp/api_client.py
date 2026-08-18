@@ -1,8 +1,10 @@
 """Thin HTTP client wrapping the Hypernode REST API.
 
-Injects the `Authorization: Token <HYPERNODE_API_TOKEN>` header on every
-request. Reads the token from a `Settings` instance (constructor param, not
-re-reading env directly) so the client stays testable.
+Injects an `Authorization: Token <token>` header on every request, resolved
+per-request from `Settings.token_for(appname)` since Hypernode API tokens
+are scoped per Hypernode/app, not account-wide — there is no single token
+that works for every app. Reads from a `Settings` instance (constructor
+param, not re-reading env directly) so the client stays testable.
 """
 
 from __future__ import annotations
@@ -47,8 +49,8 @@ class HypernodeApiClient:
         self._timeout = timeout
         self._transport = transport
 
-    def _headers(self) -> dict[str, str]:
-        return {'Authorization': f'Token {self._settings.hypernode_api_token}'}
+    def _headers(self, token_appname: str) -> dict[str, str]:
+        return {'Authorization': f'Token {self._settings.token_for(token_appname)}'}
 
     def _build_url(self, appname: str, path: str) -> str:
         """Build the full URL for `/app/<appname>/<path>`."""
@@ -61,13 +63,14 @@ class HypernodeApiClient:
         path: str,
         *,
         json: dict[str, Any] | None = None,
+        token_appname: str | None = None,
     ) -> dict[str, Any]:
         async with httpx.AsyncClient(transport=self._transport, timeout=self._timeout) as client:
             try:
                 response = await client.request(
                     method,
                     self._build_url(appname, path),
-                    headers=self._headers(),
+                    headers=self._headers(token_appname if token_appname is not None else appname),
                     json=json,
                 )
             except httpx.TimeoutException as exc:
@@ -78,9 +81,21 @@ class HypernodeApiClient:
 
             return response.json()
 
-    async def get(self, appname: str, path: str) -> dict[str, Any]:
-        """Perform a GET request against `/app/<appname>/<path>`."""
-        return await self._request('GET', appname, path)
+    async def get(
+        self,
+        appname: str,
+        path: str,
+        *,
+        token_appname: str | None = None,
+    ) -> dict[str, Any]:
+        """Perform a GET request against `/app/<appname>/<path>`.
+
+        `token_appname` overrides which app's token authenticates the
+        request when it differs from `appname` (e.g. a Brancher node's own
+        URL segment vs. its parent app's configured token). Defaults to
+        `appname`.
+        """
+        return await self._request('GET', appname, path, token_appname=token_appname)
 
     async def post(
         self,
@@ -88,10 +103,17 @@ class HypernodeApiClient:
         path: str,
         *,
         json: dict[str, Any] | None = None,
+        token_appname: str | None = None,
     ) -> dict[str, Any]:
         """Perform a POST request against `/app/<appname>/<path>` to create a resource."""
-        return await self._request('POST', appname, path, json=json)
+        return await self._request('POST', appname, path, json=json, token_appname=token_appname)
 
-    async def delete(self, appname: str, path: str) -> dict[str, Any]:
+    async def delete(
+        self,
+        appname: str,
+        path: str,
+        *,
+        token_appname: str | None = None,
+    ) -> dict[str, Any]:
         """Perform a DELETE request against `/app/<appname>/<path>` to remove a resource."""
-        return await self._request('DELETE', appname, path)
+        return await self._request('DELETE', appname, path, token_appname=token_appname)

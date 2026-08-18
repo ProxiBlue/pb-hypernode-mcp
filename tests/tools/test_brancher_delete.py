@@ -6,10 +6,9 @@ import httpx
 import pytest
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.config import Settings
+from pb_hypernode_mcp.config import Settings, UnknownAppError
 from pb_hypernode_mcp.tools._guards import InvalidNodeNameError
 from pb_hypernode_mcp.tools.brancher_delete import NodeNotFoundError, delete_brancher_node
-from pb_hypernode_mcp.tools.brancher_list import AppNotAllowedError
 
 NODES_RESPONSE = {
     'nodes': [
@@ -18,13 +17,13 @@ NODES_RESPONSE = {
 }
 
 
-def make_settings(allowlist: str = 'myapp') -> Settings:
-    return Settings(hypernode_api_token='test-token', hypernode_app_allowlist=allowlist)
+def make_settings(**tokens: str) -> Settings:
+    return Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'})
 
 
-def make_client(handler) -> HypernodeApiClient:
+def make_client(handler, settings: Settings | None = None) -> HypernodeApiClient:
     return HypernodeApiClient(
-        make_settings(),
+        settings if settings is not None else make_settings(),
         transport=httpx.MockTransport(handler),
     )
 
@@ -71,14 +70,14 @@ async def test_it_surfaces_the_target_nodes_details_before_deletion_completes() 
     }
 
 
-async def test_it_rejects_deletion_when_the_app_is_not_in_the_allowlist() -> None:
+async def test_it_rejects_deletion_when_the_app_has_no_configured_token() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError('API must not be called for a disallowed app')
+        raise AssertionError('API must not be called for an app with no configured token')
 
-    client = make_client(handler)
-    settings = make_settings(allowlist='otherapp')
+    settings = make_settings(otherapp='test-token')
+    client = make_client(handler, settings)
 
-    with pytest.raises(AppNotAllowedError, match='myapp'):
+    with pytest.raises(UnknownAppError, match='myapp'):
         await delete_brancher_node(client, settings, 'myapp-eph1', confirm=True)
 
 
@@ -104,3 +103,33 @@ async def test_it_returns_a_clear_error_when_the_target_node_does_not_exist() ->
 
     with pytest.raises(NodeNotFoundError, match='myapp-eph1'):
         await delete_brancher_node(client, settings, 'myapp-eph1', confirm=True)
+
+
+async def test_it_derives_the_correct_appname_from_a_node_name_to_resolve_the_right_token() -> None:
+    """Only 'myapp' (the parent app) has a configured token — never the node's own name.
+
+    Proves `delete_brancher_node` resolves the token via the derived parent
+    `appname`, not via the full `<appname>-eph<id>` node name (which is
+    never a key in `HYPERNODE_API_TOKENS`).
+    """
+    delete_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal delete_called
+
+        assert request.headers['authorization'] == 'Token parent-token'
+
+        if request.method == 'DELETE':
+            delete_called = True
+
+            return httpx.Response(200, json={})
+
+        return httpx.Response(200, json=NODES_RESPONSE)
+
+    settings = make_settings(myapp='parent-token')
+    client = make_client(handler, settings)
+
+    result = await delete_brancher_node(client, settings, 'myapp-eph1', confirm=True)
+
+    assert delete_called is True
+    assert result == {'deleted': True, 'node_name': 'myapp-eph1'}

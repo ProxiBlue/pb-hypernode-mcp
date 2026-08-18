@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.tools._guards import validate_eph_node_name
+from pb_hypernode_mcp.tools._guards import appname_from_node_name, validate_eph_node_name
 
 SSH_PORT = 22
 
@@ -23,10 +23,16 @@ class NodeNotReadyError(Exception):
 
 
 async def get_ssh_info(client: HypernodeApiClient, node_name: str) -> dict[str, Any]:
-    """Return `{host, user, port}` SSH connection details for `node_name`."""
+    """Return `{host, user, port}` SSH connection details for `node_name`.
+
+    The node's parent `<appname>` (derived from `node_name`) is used to
+    resolve the correct API token — a Brancher node's own name is never a
+    key in `HYPERNODE_API_TOKENS`, only its parent app is.
+    """
     validate_eph_node_name(node_name)
 
-    detail = await client.get(node_name, '')
+    appname = appname_from_node_name(node_name)
+    detail = await client.get(node_name, '', token_appname=appname)
 
     if not detail.get('ip_address'):
         raise NodeNotReadyError(f'Brancher node {node_name!r} is not ready yet (no IP assigned).')

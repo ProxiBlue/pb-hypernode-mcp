@@ -8,7 +8,7 @@
         "run",
         "pb-hypernode-mcp"
       ],
-      "description": "Hypernode Brancher MCP server — brancher_create/list/delete/ssh_info/exec/put tools for spinning up disposable prod-clone preview environments. Requires HYPERNODE_API_TOKEN set in the environment before Claude Code starts (read from env only, never written to disk or stored in plugin config). Optional HYPERNODE_APP_ALLOWLIST (comma-separated) restricts which Hypernode <appname> values these tools may target."
+      "description": "Hypernode Brancher MCP server — brancher_create/list/delete/ssh_info/exec/put/apps tools for spinning up disposable prod-clone preview environments across one or more Hypernodes. Requires HYPERNODE_API_TOKENS set in the environment before Claude Code starts — a JSON object mapping each Hypernode <appname> to its own API token, e.g. '{\"myapp\":\"token1\",\"myapp2\":\"token2\"}' (read from env only, never written to disk or stored in plugin config). Only apps present in that map can be operated on; brancher_apps lists them."
     }
   }
 }

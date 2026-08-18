@@ -10,11 +10,11 @@ from pb_hypernode_mcp.api_client import (
     HypernodeApiError,
     HypernodeApiTimeoutError,
 )
-from pb_hypernode_mcp.config import Settings
+from pb_hypernode_mcp.config import Settings, UnknownAppError
 
 
-def make_settings(token: str = 'test-token') -> Settings:
-    return Settings(hypernode_api_token=token)
+def make_settings(**tokens: str) -> Settings:
+    return Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'})
 
 
 async def test_it_sends_the_authorization_token_header_on_every_request() -> None:
@@ -26,13 +26,47 @@ async def test_it_sends_the_authorization_token_header_on_every_request() -> Non
         return httpx.Response(200, json={})
 
     client = HypernodeApiClient(
-        make_settings('abc123'),
+        make_settings(myapp='abc123'),
         transport=httpx.MockTransport(handler),
     )
 
     await client.get('myapp', 'brancher/')
 
     assert captured_headers['authorization'] == 'Token abc123'
+
+
+async def test_it_resolves_the_correct_token_for_a_given_appname_on_each_api_request() -> None:
+    captured_headers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers.append(request.headers['authorization'])
+
+        return httpx.Response(200, json={})
+
+    client = HypernodeApiClient(
+        make_settings(myapp='token1', myapp2='token2'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    await client.get('myapp', 'brancher/')
+    await client.get('myapp2', 'brancher/')
+
+    assert captured_headers == ['Token token1', 'Token token2']
+
+
+async def test_it_raises_a_clear_error_when_a_request_targets_an_app_with_no_configured_token() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError('the API must not be called for an app with no configured token')
+
+    client = HypernodeApiClient(
+        make_settings(myapp='token1'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(UnknownAppError, match='myapp'):
+        await client.get('otherapp', 'brancher/')
 
 
 async def test_it_raises_a_typed_hypernode_api_error_with_status_code_and_body_on_a_4xx_response() -> (  # noqa: E501
@@ -107,7 +141,7 @@ async def test_it_constructs_the_correct_url_for_a_given_appname_and_sub_resourc
         return httpx.Response(200, json={})
 
     client = HypernodeApiClient(
-        make_settings(),
+        make_settings(myapp='test-token', **{'myapp-eph42': 'test-token'}),
         transport=httpx.MockTransport(handler),
     )
 
@@ -153,7 +187,7 @@ async def test_it_sends_a_delete_request_to_remove_a_resource() -> None:
         return httpx.Response(204, json={})
 
     client = HypernodeApiClient(
-        make_settings(),
+        make_settings(**{'myapp-eph1': 'test-token'}),
         transport=httpx.MockTransport(handler),
     )
 
@@ -162,3 +196,25 @@ async def test_it_sends_a_delete_request_to_remove_a_resource() -> None:
     assert captured['method'] == 'DELETE'
     assert captured['url'] == 'https://api.hypernode.com/v2/app/myapp-eph1/'
     assert result == {}
+
+
+async def test_it_resolves_the_token_via_an_explicit_token_appname_when_the_url_appname_differs() -> (  # noqa: E501
+    None
+):
+    captured_headers: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers.append(request.headers['authorization'])
+
+        return httpx.Response(200, json={})
+
+    client = HypernodeApiClient(
+        make_settings(myapp='parent-token'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    # 'myapp-eph1' is a Brancher node URL segment, but the token that
+    # authenticates it is the parent app's ('myapp'), not 'myapp-eph1'.
+    await client.get('myapp-eph1', '', token_appname='myapp')
+
+    assert captured_headers == ['Token parent-token']

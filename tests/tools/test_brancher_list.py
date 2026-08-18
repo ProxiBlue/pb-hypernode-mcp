@@ -6,12 +6,12 @@ import httpx
 import pytest
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.config import Settings
-from pb_hypernode_mcp.tools.brancher_list import AppNotAllowedError, list_brancher_nodes
+from pb_hypernode_mcp.config import Settings, UnknownAppError
+from pb_hypernode_mcp.tools.brancher_list import list_brancher_nodes
 
 
-def make_settings(allowlist: str = 'myapp') -> Settings:
-    return Settings(hypernode_api_token='test-token', hypernode_app_allowlist=allowlist)
+def make_settings(**tokens: str) -> Settings:
+    return Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'})
 
 
 def make_client(handler) -> HypernodeApiClient:
@@ -74,12 +74,12 @@ async def test_it_returns_an_empty_list_when_no_brancher_nodes_exist_for_the_app
     assert nodes == []
 
 
-async def test_it_rejects_the_call_when_the_app_is_not_in_the_allowlist() -> None:
+async def test_it_rejects_the_call_when_the_app_has_no_configured_token() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError('API must not be called for a disallowed app')
+        raise AssertionError('API must not be called for an app with no configured token')
 
-    client = make_client(handler)
-    settings = make_settings(allowlist='otherapp')
+    settings = make_settings(otherapp='test-token')
+    client = HypernodeApiClient(settings, transport=httpx.MockTransport(handler))
 
-    with pytest.raises(AppNotAllowedError, match='myapp'):
+    with pytest.raises(UnknownAppError, match='myapp'):
         await list_brancher_nodes('myapp', client=client, settings=settings)

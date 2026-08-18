@@ -79,7 +79,9 @@ def test_it_documents_required_environment_variables_in_the_manifest_or_install_
     readme = (REPO_ROOT / 'README.md').read_text()
 
     user_config: dict[str, Any] = plugin_manifest['userConfig']
-    assert 'HYPERNODE_API_TOKEN' in user_config['hypernode_api_token_env']['default']
+    assert 'HYPERNODE_API_TOKENS' in user_config['hypernode_api_tokens_env']['default']
 
-    assert 'HYPERNODE_API_TOKEN' in readme
-    assert 'HYPERNODE_APP_ALLOWLIST' in readme
+    assert 'HYPERNODE_API_TOKENS' in readme
+    assert 'HYPERNODE_APP_ALLOWLIST' not in readme
+    # No stale bare 'HYPERNODE_API_TOKEN' (singular, old model) left anywhere.
+    assert not re.search(r'HYPERNODE_API_TOKEN(?!S)', readme)

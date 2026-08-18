@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 _EPH_NODE_NAME_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-eph[0-9]+$')
+_APPNAME_FROM_NODE_NAME_PATTERN = re.compile(r'^(?P<appname>.+)-eph[0-9]+$')
 
 
 class InvalidNodeNameError(ValueError):
@@ -29,3 +30,18 @@ def validate_eph_node_name(name: str) -> None:
             f'{name!r} is not a valid Brancher node name. '
             "Expected the '<appname>-eph<id>' pattern, e.g. 'pps-eph123456'."
         )
+
+
+def appname_from_node_name(node_name: str) -> str:
+    """Derive the parent `<appname>` from a validated `<appname>-eph<id>` node name.
+
+    Hypernode API tokens are scoped per parent app, not per Brancher node —
+    callers that need to resolve the correct token for a node (rather than
+    the node's own URL segment) use this to get the key that actually exists
+    in `HYPERNODE_API_TOKENS`. Call `validate_eph_node_name(node_name)` first;
+    this assumes `node_name` already matches the `-eph<id>` pattern.
+    """
+    match = _APPNAME_FROM_NODE_NAME_PATTERN.match(node_name)
+    assert match is not None  # validated by validate_eph_node_name before this is called
+
+    return match.group('appname')

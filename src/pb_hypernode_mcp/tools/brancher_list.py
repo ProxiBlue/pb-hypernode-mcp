@@ -24,20 +24,18 @@ from pb_hypernode_mcp.config import Settings
 ClientFactory = Callable[[], tuple[HypernodeApiClient, Settings]]
 
 
-class AppNotAllowedError(Exception):
-    """Raised when `appname` is not present in the configured app allowlist."""
-
-
 async def list_brancher_nodes(
     appname: str,
     *,
     client: HypernodeApiClient,
     settings: Settings,
 ) -> list[dict[str, Any]]:
-    """List active Brancher nodes for `appname`."""
-    if appname not in settings.app_allowlist:
-        raise AppNotAllowedError(f"App '{appname}' is not in the configured allowlist.")
+    """List active Brancher nodes for `appname`.
 
+    Raises `UnknownAppError` (via `client.get` -> `Settings.token_for`) when
+    `appname` has no configured token — there is nothing to authenticate
+    the request with.
+    """
     response = await client.get(appname, 'brancher/')
     nodes = response.get('nodes', [])
 

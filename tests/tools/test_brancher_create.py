@@ -15,16 +15,16 @@ import httpx
 import pytest
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.config import Settings
+from pb_hypernode_mcp.config import Settings, UnknownAppError
 from pb_hypernode_mcp.tools.brancher_create import (
     BrancherCreateError,
     create_brancher_node,
 )
 
 
-def make_client(handler) -> HypernodeApiClient:
+def make_client(handler, **tokens: str) -> HypernodeApiClient:
     return HypernodeApiClient(
-        Settings(hypernode_api_token='test-token'),
+        Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),
         transport=httpx.MockTransport(handler),
     )
 
@@ -43,7 +43,6 @@ async def test_it_creates_a_brancher_node_and_returns_the_node_name() -> None:
 
     result = await create_brancher_node(
         client,
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
     )
@@ -60,22 +59,20 @@ async def test_it_rejects_the_call_when_no_label_is_provided() -> None:
     with pytest.raises(BrancherCreateError, match='label'):
         await create_brancher_node(
             client,
-            app_allowlist=('myapp',),
             appname='myapp',
             labels=[],
         )
 
 
-async def test_it_rejects_the_call_when_the_app_is_not_in_the_allowlist() -> None:
+async def test_it_rejects_the_call_when_the_app_has_no_configured_token() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         pytest.fail(f'unexpected HTTP call: {request.method} {request.url}')
 
-    client = make_client(handler)
+    client = make_client(handler, otherapp='test-token')
 
-    with pytest.raises(BrancherCreateError, match='allowlist'):
+    with pytest.raises(UnknownAppError, match='myapp'):
         await create_brancher_node(
             client,
-            app_allowlist=('otherapp',),
             appname='myapp',
             labels=['ticket-123'],
         )
@@ -93,7 +90,6 @@ async def test_it_rejects_the_call_when_the_app_is_not_on_a_falcons_eligible_pla
     with pytest.raises(BrancherCreateError, match='Falcons'):
         await create_brancher_node(
             client,
-            app_allowlist=('myapp',),
             appname='myapp',
             labels=['ticket-123'],
         )
@@ -115,7 +111,6 @@ async def test_it_includes_remaining_free_minutes_in_the_response_before_alongsi
 
     result = await create_brancher_node(
         client,
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
     )
@@ -138,7 +133,6 @@ async def test_it_passes_clear_services_through_to_the_api_request_when_provided
 
     await create_brancher_node(
         client,
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
         clear_services=['mysql', 'elasticsearch'],
@@ -164,7 +158,6 @@ async def test_it_defaults_clear_services_to_cron_when_not_provided() -> None:
 
     await create_brancher_node(
         client,
-        app_allowlist=('myapp',),
         appname='myapp',
         labels=['ticket-123'],
     )

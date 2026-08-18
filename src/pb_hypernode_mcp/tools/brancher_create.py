@@ -1,7 +1,10 @@
 """create_brancher_node: internal-only Brancher node creation primitive.
 
-Enforces pre-create guardrails (mandatory label, app allowlist, Falcons-plan
-eligibility, minutes-remaining display) before issuing the create request.
+Enforces pre-create guardrails (mandatory label, Falcons-plan eligibility,
+minutes-remaining display) before issuing the create request. There is no
+separate app-allowlist check — `client.get(appname, ...)` naturally raises
+`UnknownAppError` (via `Settings.token_for`) when `appname` has no
+configured Hypernode API token.
 
 SECURITY (task 017): `create_brancher_node` is deliberately NEVER registered
 as a standalone MCP tool. It performs zero sanitization — a node created via
@@ -39,7 +42,6 @@ class BrancherCreateError(ValueError):
 
 async def create_brancher_node(
     client: HypernodeApiClient,
-    app_allowlist: tuple[str, ...],
     appname: str,
     labels: list[str],
     clear_services: list[str] | None = None,
@@ -47,12 +49,6 @@ async def create_brancher_node(
     """Create a Brancher node for `appname` and return its node name."""
     if not labels:
         raise BrancherCreateError('At least one label is required to create a Brancher node.')
-
-    if appname not in app_allowlist:
-        raise BrancherCreateError(
-            f"App '{appname}' is not in the configured allowlist. "
-            'Add it to HYPERNODE_APP_ALLOWLIST to permit Brancher operations on it.'
-        )
 
     app_info = await client.get(appname, '')
 

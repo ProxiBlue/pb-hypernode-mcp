@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from pb_hypernode_mcp.api_client import HypernodeApiClient
 from pb_hypernode_mcp.config import Settings, load_settings
 from pb_hypernode_mcp.tools import (
+    brancher_apps,
     brancher_delete,
     brancher_exec,
     brancher_list,
@@ -20,13 +21,13 @@ SERVER_NAME = 'pb-hypernode-mcp'
 
 
 def create_server() -> FastMCP:
-    """Build the FastMCP server instance with all six Brancher tools registered.
+    """Build the FastMCP server instance with all seven Brancher tools registered.
 
     `Settings` and `HypernodeApiClient` are each built lazily, on first use,
     and cached so every tool call after the first reuses the same client
     instance rather than constructing a new one per call. Construction stays
     lazy (not done here at `create_server()` time) so building the server
-    never requires `HYPERNODE_API_TOKEN` to already be configured.
+    never requires `HYPERNODE_API_TOKENS` to already be configured.
 
     SECURITY (task 017): `brancher_create` is the ONLY node-creation tool
     registered here, and it is wired to `brancher_spinup_flow.register()` —
@@ -34,6 +35,13 @@ def create_server() -> FastMCP:
     unsanitized `create_brancher_node()` primitive
     (`tools/brancher_create.py`) is intentionally never registered as its
     own MCP tool; do not add it back.
+
+    Hypernode API tokens are scoped per Hypernode/app (task 018), so every
+    REST-API-calling tool resolves its token per-request via
+    `Settings.token_for(appname)` inside `HypernodeApiClient` — there is no
+    single account-wide token or separate allowlist to wire up here.
+    `brancher_apps` (pure local config introspection, no API call) lets a
+    caller list which apps actually have a token configured.
     """
     server = FastMCP(name=SERVER_NAME)
 
@@ -59,7 +67,8 @@ def create_server() -> FastMCP:
     brancher_delete.register(server, lambda: (get_client(), get_settings()))
     brancher_exec.register(server)
     brancher_put.register(server)
-    brancher_spinup_flow.register(server, lambda: (get_client(), get_settings().app_allowlist))
+    brancher_spinup_flow.register(server, get_client)
+    brancher_apps.register(server, get_settings)
 
     return server
 
