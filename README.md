@@ -12,14 +12,16 @@ Three steps: install the plugin, tell it your Hypernode token, restart Claude Co
 
 ### 1. Install the plugin
 
-Open a terminal and run:
+Type this directly into Claude Code (no terminal needed):
 
-```bash
-claude plugin marketplace add ProxiBlue/pb-hypernode-mcp
-claude plugin install pb-hypernode-mcp@pb-hypernode-mcp
+```
+/plugin marketplace add ProxiBlue/pb-hypernode-mcp
+/plugin install pb-hypernode-mcp@pb-hypernode-mcp
 ```
 
-That's it — no separate server to run, nothing to download by hand. Claude Code fetches everything and starts it automatically.
+Claude Code fetches everything straight from GitHub — no downloading, no separate server to run, nothing to clone by hand.
+
+(If you'd rather run it from a terminal instead, the same commands work as `claude plugin marketplace add ...` / `claude plugin install ...`.)
 
 ### 2. Add your Hypernode API token
 
