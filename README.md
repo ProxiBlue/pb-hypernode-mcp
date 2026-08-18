@@ -6,38 +6,52 @@ Client-side Claude Code plugin for [Hypernode Brancher](https://www.hypernode.co
 
 Brancher gives you a mutable, temporary copy of your production Hypernode (≤24h-old data, full toolchain, real infra — not a Docker approximation). The catch: it clones production wholesale, meaning live customer PII and real payment/API credentials come along by default, and the node gets a public URL. This plugin closes that gap — every node it creates is anonymized and sandboxed automatically, before it's ever reported ready, so "let the client's AI poke at a real prod clone" doesn't also mean "expose real customer data on the internet."
 
-## What's in the plugin
+## Setup
 
-```
-.claude-plugin/           plugin + marketplace manifest
-.mcp.json                 MCP client config — stdio, no external server to stand up
-skills/
-├── brancher-spinup/      SKILL.md — create a sanitized node, report access details
-├── brancher-preview/     SKILL.md — full loop: spin up -> change -> build -> screenshot
-└── brancher-cleanup/     SKILL.md — list/flag/delete stale nodes
-src/pb_hypernode_mcp/
-├── server.py             MCP server entrypoint (stdio transport)
-├── api_client.py         Hypernode REST API wrapper
-├── tools/                the 6 MCP tools (see below)
-└── sanitization/         config-driven PII/gateway/API-key sanitization
-tests/                    pytest, mirrors src/ layout
+Three steps: install the plugin, tell it your Hypernode token, restart Claude Code.
+
+### 1. Install the plugin
+
+Open a terminal and run:
+
+```bash
+claude plugin marketplace add ProxiBlue/pb-hypernode-mcp
+claude plugin install pb-hypernode-mcp@pb-hypernode-mcp
 ```
 
-Unlike [pb-graphiti](https://github.com/ProxiBlue/pb-graphiti), there's no external server to stand up — the MCP server is this repo, run locally via `uv run pb-hypernode-mcp`, started automatically by Claude Code once the plugin is enabled.
+That's it — no separate server to run, nothing to download by hand. Claude Code fetches everything and starts it automatically.
 
-## Requirements
+### 2. Add your Hypernode API token
 
-- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) on the machine running Claude Code.
-- A Hypernode account on a **Falcons** plan (Brancher is Falcons-only) with an API token — find yours at `/etc/hypernode/hypernode_api_token` on the Hypernode itself, or generate one in the Control Panel.
-- A local SSH key already able to reach your Hypernode (the same one you use today) — Brancher nodes inherit it automatically via the full-filesystem backup clone. Nothing extra to provision.
+This plugin needs your Hypernode API token to talk to your Hypernode account on your behalf. It never gets stored anywhere by the plugin — you set it as an environment variable, the same way you'd set any password-like value.
+
+Find your token in your Hypernode's Control Panel, then in your terminal (before opening Claude Code):
+
+```bash
+export HYPERNODE_API_TOKEN="your-token-here"
+```
+
+Optional but recommended — restrict which Hypernode apps this plugin is allowed to touch, so a typo can never hit the wrong site:
+
+```bash
+export HYPERNODE_APP_ALLOWLIST="myapp"
+```
+
+(Comma-separate multiple app names, e.g. `"myapp,myapp2"`, if you manage more than one.)
+
+Tip: add both lines to your shell's startup file (`~/.zshrc` or `~/.bashrc`) so you don't have to re-type them every time.
+
+### 3. Restart Claude Code
+
+Close and reopen Claude Code so it picks up the token and connects to the plugin. You're ready to go.
 
 ## Quick start
 
-Once installed and configured (below), just ask:
+Just ask, in plain English:
 
 > "Spin up a Brancher preview for myapp so I can show the client the new category page layout."
 
-Claude calls `brancher_create` (label required, e.g. `"category-page-demo"`), which creates the node, waits for it to come up, runs the full sanitization sequence, and reports back:
+Claude creates the node, waits for it to come online, sanitizes it (see [Safety guardrails](#safety-guardrails)), and reports back:
 
 ```
 node_name:     myapp-eph482913
@@ -45,55 +59,24 @@ access_url:    https://myapp-eph482913.hypernode.io/
 minutes_remaining: 387
 ```
 
-From there, ask it to push a local branch (`brancher_put`), edit in place over SSH (`brancher_exec`), or just run `brancher-preview` for the full apply-and-screenshot loop. When you're done, `brancher-cleanup` finds and removes anything left running — Brancher bills wall-clock minutes whether or not anyone's looking at it.
+From there, ask it to make a change and show you the result, or just say "clean up any leftover preview nodes" when you're done — Brancher bills by the minute whether or not anyone's looking at it.
 
-## Installation
+## What's in the plugin
 
-Follows the [pb-graphiti](https://github.com/ProxiBlue/pb-graphiti)/[pb-chatroom](https://github.com/ProxiBlue/pb-chatroom) seed-mount convention: register the repo as a marketplace, then install from it.
-
-```bash
-claude plugin marketplace add pb-hypernode-mcp /path/to/pb-hypernode-mcp
-claude plugin install pb-hypernode-mcp@pb-hypernode-mcp
+```
+skills/
+├── brancher-spinup/      create a sanitized preview node, report access details
+├── brancher-preview/     full loop: spin up -> change -> build -> screenshot
+└── brancher-cleanup/     list/flag/delete leftover nodes
+src/pb_hypernode_mcp/     the MCP server (6 tools) — see MCP tools below
+tests/                    automated test suite
 ```
 
-Or for local development, clone and reference by path in `~/.claude/settings.json`:
+## Requirements
 
-```json
-{
-  "extraKnownMarketplaces": {
-    "pb-hypernode-mcp": {
-      "source": { "source": "directory", "path": "/path/to/pb-hypernode-mcp" }
-    }
-  },
-  "enabledPlugins": {
-    "pb-hypernode-mcp@pb-hypernode-mcp": true
-  }
-}
-```
-
-After editing skills, the MCP manifest, or server code, pick up the change without a fresh marketplace add:
-
-```bash
-claude plugin update pb-hypernode-mcp@pb-hypernode-mcp
-```
-
-The bundled MCP server (see `.mcp.json`) starts automatically once the plugin is enabled, run via `uv run pb-hypernode-mcp` against this repo's `pyproject.toml` entrypoint (`pb_hypernode_mcp.server:main`).
-
-## Required configuration
-
-Set these in your shell **before** starting Claude Code — never in plugin config, never committed:
-
-| Env var | Required | Description |
-|---|---|---|
-| `HYPERNODE_API_TOKEN` | Yes | Your Hypernode API token. Read from the environment only; never written to disk by this plugin. The server refuses to start without it (`load_settings()` raises `ConfigError`). |
-| `HYPERNODE_APP_ALLOWLIST` | No | Comma-separated list of Hypernode `<appname>` values this plugin may operate against, e.g. `myapp,myapp2`. `brancher_create`, `brancher_list`, and `brancher_delete` refuse any app not on this list when set. Leave unset only if you understand every app reachable by this token is fair game. |
-
-```bash
-export HYPERNODE_API_TOKEN="your-token-here"
-export HYPERNODE_APP_ALLOWLIST="myapp,myapp2"
-```
-
-The token/allowlist are read once per server process and cached — restart the MCP server (restart Claude Code, or `claude plugin update ...`) after changing either.
+- A Hypernode account on a **Falcons** plan, with an API token from the Control Panel (Brancher is a Falcons-only feature).
+- The SSH key you already use to reach your Hypernode — nothing extra to set up, Brancher preview nodes inherit access automatically.
+- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) installed on the machine running Claude Code (Claude Code plugins are just code — this is the runtime they need).
 
 ## MCP tools
 
@@ -160,15 +143,16 @@ uv run pyright src tests             # type check
 
 No integration tests run automatically against a real Hypernode account. If you're changing `tools/brancher_exec.py` or the reachability-polling logic in `tools/brancher_spinup_flow.py`, do a manual smoke test against a real Falcons-plan node before merging — mocks can't catch a wrong SSH-user assumption or a shape mismatch in the real API response.
 
-## Manual verification of the marketplace install path
+To install your own clone for local development instead of the published version, point Claude Code at the folder directly:
 
-Automated installation of a Claude Code plugin through the real `claude` CLI could not be exercised inside this sandbox (no interactive Claude Code session available to the TDD worker). Verify manually after cloning:
+```bash
+claude plugin marketplace add pb-hypernode-mcp /path/to/your/clone
+claude plugin install pb-hypernode-mcp@pb-hypernode-mcp
+```
 
-1. `claude plugin marketplace add pb-hypernode-mcp /path/to/pb-hypernode-mcp`
-2. `claude plugin install pb-hypernode-mcp@pb-hypernode-mcp`
-3. `claude plugin list` — confirm `pb-hypernode-mcp` appears, enabled.
-4. Start a Claude Code session; confirm the `pb-hypernode-mcp` MCP server connects (its tools appear in the toolkit) and that `brancher-spinup`/`brancher-preview`/`brancher-cleanup` are available under `/help` or `@`-mention as `pb-hypernode-mcp:<skill-name>`.
-5. Edit a file under `skills/` or `src/pb_hypernode_mcp/`, run `claude plugin update pb-hypernode-mcp@pb-hypernode-mcp`, and confirm the change is picked up without a fresh marketplace add.
+After editing skills or server code, run `claude plugin update pb-hypernode-mcp@pb-hypernode-mcp` to pick up the change without re-adding the marketplace.
+
+If the plugin doesn't show up after installing, check: `claude plugin list` shows `pb-hypernode-mcp` as enabled; a fresh Claude Code session lists the `brancher_*` tools and the three `brancher-*` skills; `HYPERNODE_API_TOKEN` is set in the same shell you launched Claude Code from.
 
 ## License
 
