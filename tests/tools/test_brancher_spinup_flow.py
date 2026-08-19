@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import httpx
@@ -188,6 +189,42 @@ async def test_it_times_out_with_a_clear_error_if_the_node_never_becomes_ssh_rea
         )
 
     assert exec_fn.call_count >= 2
+
+
+def test_it_defaults_the_reachability_timeout_to_1200_seconds() -> None:
+    signature = inspect.signature(spinup_sanitized_brancher_node)
+    assert signature.parameters['reachability_timeout'].default == 1200.0
+
+    register_signature = inspect.signature(register)
+    assert register_signature.parameters['reachability_timeout'].default == 1200.0
+
+
+async def test_it_still_respects_an_explicitly_injected_shorter_timeout_for_tests() -> None:
+    # No real 20-minute test run: injects a short timeout explicitly and
+    # asserts it is honoured rather than the (now much longer) default.
+    exec_fn = AlwaysUnreachableExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    with pytest.raises(NodeUnreachableTimeoutError):
+        await spinup_sanitized_brancher_node(
+            make_client(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=make_sanitization_config(),
+            exec_command=exec_fn,
+            reachability_poll_interval=1.0,
+            reachability_timeout=5.0,
+            sleep=fake_sleep,
+            clock=fake_clock,
+        )
+
+    assert fake_time['now'] < 1200.0
 
 
 # --- tests for the `brancher_create` MCP tool (`register()`), the sole

@@ -28,6 +28,12 @@ minutes. This skill does not delete the node itself — that is
    sequence here — reuse it as a step. Nothing in this skill proceeds until
    `brancher_create` reports `status: "ready"`.
 
+   Because `brancher_create` can take up to ~20 minutes, this step inherits
+   `brancher-spinup`'s guidance: run it via a background Agent/Task call
+   rather than blocking inline, tell the user you're doing so, and only
+   continue to steps 2-5 of this loop once the background agent reports the
+   node ready.
+
 2. **Apply the change.** Two patterns, pick the one that matches what the
    user asked for:
 

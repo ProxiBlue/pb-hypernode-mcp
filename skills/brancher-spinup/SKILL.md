@@ -36,6 +36,15 @@ exposes.
    covers the entire create -> wait -> sanitize -> ready sequence — do not
    poll or call other tools in between.
 
+   - **This call can take up to ~20 minutes** (Hypernode's own Control Panel
+     states node setup can take up to 15 minutes before the node even
+     becomes SSH-reachable, before sanitization runs on top of that).
+     Because of this, run `brancher_create` via a **background
+     Agent/Task call** rather than blocking the current session inline —
+     tell the user you're spinning it up in the background, then report
+     back with the result (ready, or a clear failure) when the background
+     agent completes. Do not poll for progress in the foreground; the
+     background agent's single completion notification is the signal.
    - If the app has no configured token (`HYPERNODE_API_TOKENS`), or is not
      on a Falcons-eligible plan, or no label was provided, the call fails
      immediately before anything is created. Surface that error message to
@@ -81,7 +90,9 @@ which one:
   including `brancher_create`, will succeed. Tell the user this plainly
   rather than treating it as a transient failure to retry.
 - **Node never becomes SSH-reachable** (`NodeUnreachableTimeoutError`) — the
-  node was created but never responded within the reachability timeout.
+  node was created but never responded within the reachability timeout
+  (20 minutes by default — well above Hypernode's own stated 15-minute
+  worst case, so a timeout here is a genuine signal, not just impatience).
   Surface this plainly; it usually means retrying later or checking
   Hypernode's own status.
 - **Sanitization failed partway through** (`SanitizationFailedError`) — the
@@ -103,6 +114,10 @@ vaguer.
 
 ```
 User: "Spin up a preview of myapp for ticket-482."
+
+0. Tell the user: "This can take up to ~20 minutes — spinning it up in the
+   background so I don't block this session. I'll report back when it's
+   ready." Then invoke brancher_create via a background Agent/Task call.
 
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    {
