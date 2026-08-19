@@ -73,8 +73,9 @@ Claude creates the node, waits for it to come online, sanitizes it (see [Safety 
 ```
 node_name:     myapp-eph482913
 access_url:    https://myapp-eph482913.hypernode.io/
-minutes_remaining: 387
 ```
+
+(`minutes_remaining` is always `None` — no verified Hypernode API source for a remaining-minutes figure exists yet; see [Limitations](#limitations-v1).)
 
 From there, ask it to make a change and show you the result, or just say "clean up any leftover preview nodes" when you're done — Brancher bills by the minute whether or not anyone's looking at it.
 
@@ -92,6 +93,7 @@ tests/                    automated test suite
 ## Requirements
 
 - A Hypernode account on a **Falcons** plan, with an API token from the Control Panel (Brancher is a Falcons-only feature).
+- **`allow_api_token_usage` enabled on the app.** Real accounts default this setting to `false`. Hypernode 403s any Brancher/financial API call — including `brancher_create` — until an owner/admin explicitly turns on "API token usage" for the app in the Control Panel (Configuration -> Settings). A 403 whose message mentions the "financial nature of the command" means this setting is off — it is not a bug in this plugin.
 - The SSH key you already use to reach your Hypernode — nothing extra to set up, Brancher preview nodes inherit access automatically.
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) installed on the machine running Claude Code (Claude Code plugins are just code — this is the runtime they need).
 
@@ -147,7 +149,8 @@ This design was checked by a 3-specialist security review before release (static
 - **stdio transport only.** No remote/HTTP MCP transport in v1 — this is a local Claude Code plugin, run per-developer against their own `HYPERNODE_API_TOKENS`. There is no hosted/managed version of this MCP. Token and SSH access are both entirely client-owned.
 - **REST API only.** No Hypernode Deploy (`deploy.php`) integration in v1.
 - **Wall-clock, not idle-aware, minute accounting.** `brancher-cleanup`'s staleness check uses `minutes` as reported by the Hypernode API (uptime since creation) — it cannot tell an idle node from an actively used one.
-- **Unverified API response shapes.** `brancher_list`'s expected response shape (`{"nodes": [{"name", "host", "minutes"}, ...]}`) and `brancher_create`'s plan/minutes field names (`plan_type`, `brancher_minutes_remaining`) are documented assumptions, not yet confirmed against the live Hypernode API contract — see the module docstrings in `src/pb_hypernode_mcp/tools/brancher_list.py` and `src/pb_hypernode_mcp/tools/brancher_create.py` if API responses don't match at runtime. Run a real create -> `brancher_exec whoami` smoke test against a Falcons-plan account before pointing this at a client.
+- **Plan-eligibility field verified; minutes-remaining has no known source.** `brancher_create`'s Falcons-plan eligibility check is confirmed against a real Hypernode account (`GET /v2/app/<appname>/`): the field is `product.code` (e.g. `"FALCON_S_202603DEV"`, matched as a `"FALCON"` substring since Hypernode has multiple Falcon SKUs — not a `plan_type` field, and not an exact-value match). The earlier `minutes_remaining` field name (`brancher_minutes_remaining`) was not just misnamed but nonexistent — there is no verified field or endpoint anywhere on the Hypernode API for an account-wide remaining-minutes figure, so `create_brancher_node` always returns `minutes_remaining: None`. `brancher_list`'s expected response shape (`{"nodes": [{"name", "host", "minutes"}, ...]}`) remains an unverified assumption — see the module docstring in `src/pb_hypernode_mcp/tools/brancher_list.py` if API responses don't match at runtime.
+- **Brancher/financial API calls require `allow_api_token_usage: true`.** This is an account-level setting (Hypernode Control Panel -> Configuration -> Settings, owner/admin only), not a code path in this plugin — see [Requirements](#requirements).
 - **Playwright test offloading not yet built.** Running the functional test suite against a Brancher node instead of local/CI is tracked separately — see [ProxiBlue/pb-hypernode-mcp#1](../../issues) or the originating design ticket.
 
 ## Development

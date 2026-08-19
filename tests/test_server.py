@@ -27,8 +27,7 @@ class FakeApiClient:
         self, appname: str, path: str, *, token_appname: str | None = None
     ) -> dict[str, Any]:
         return {
-            'plan_type': 'falcons',
-            'brancher_minutes_remaining': 5,
+            'product': {'code': 'FALCON_S_202603DEV'},
             'ip_address': '203.0.113.10',
             'nodes': [{'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 5}],
         }
@@ -155,7 +154,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
 
     assert result == {
         'node_name': 'myapp-eph1',
-        'minutes_remaining': 5,
+        'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
         'status': 'ready',
         'sanitization_commands_run': 12,
@@ -193,7 +192,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
     # reported back to the caller.
     assert result == {
         'node_name': 'myapp-eph1',
-        'minutes_remaining': 5,
+        'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
         'status': 'ready',
         'sanitization_commands_run': 12,
@@ -230,7 +229,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
 
     assert result == {
         'node_name': 'myapp-eph1',
-        'minutes_remaining': 5,
+        'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
         'status': 'ready',
         'sanitization_commands_run': 12,

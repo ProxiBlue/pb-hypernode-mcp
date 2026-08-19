@@ -21,7 +21,9 @@ minutes. This skill does not delete the node itself — that is
    (never guess an `appname`; if exactly one app is configured, proceed with
    it and just note that). Then continue the `brancher-spinup` flow (ask for
    a label if missing, call `brancher_create`, report `node_name`,
-   `minutes_remaining`, `access_url`, `status`, `sanitization_commands_run`).
+   `access_url`, `status`, `sanitization_commands_run` — `minutes_remaining`
+   is always `None`; see the `brancher-spinup` skill for why, and don't
+   report it as if it were meaningful data).
    Do not reimplement or shortcut that create -> wait -> sanitize -> ready
    sequence here — reuse it as a step. Nothing in this skill proceeds until
    `brancher_create` reports `status: "ready"`.
@@ -98,7 +100,7 @@ User: "Spin up a preview of myapp for ticket-482, push my local branch's
 
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    { node_name: "myapp-eph198234", access_url: "https://myapp-eph198234.hypernode.io/",
-     minutes_remaining: 118, status: "ready", sanitization_commands_run: 12 }
+     minutes_remaining: None, status: "ready", sanitization_commands_run: 12 }
 
 2. brancher_put(node_name="myapp-eph198234",
      local_path="app/design/frontend/Uptactics/pps/templates/checkout/summary.phtml",

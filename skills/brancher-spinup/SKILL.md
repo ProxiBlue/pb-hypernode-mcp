@@ -45,17 +45,19 @@ exposes.
    returns:
 
    - `node_name` — the created node's Brancher name (`<appname>-eph<id>`)
-   - `minutes_remaining` — how many Brancher minutes the app had left at
-     creation time; tell the user this so they know their remaining budget
+   - `minutes_remaining` — always `None`. There is no verified Hypernode API
+     source for a remaining-minutes figure; do not report this to the user
+     as if it were meaningful data, and do not claim to know the app's
+     Brancher budget from this field.
    - `access_url` — the browsable URL for the sanitized node
    - `status` — always `"ready"` on success (sanitization already ran)
    - `sanitization_commands_run` — how many sanitization commands were
      executed against the node before it was reported ready
 
-   Report all of these back to the user, not just the URL — the minutes
-   remaining and sanitization count are the guardrail evidence that this
-   node is safe to hand to a client and won't silently blow through the
-   app's Brancher allowance.
+   Report `node_name`, `access_url`, `status`, and `sanitization_commands_run`
+   back to the user — the sanitization count is the guardrail evidence that
+   this node is safe to hand to a client. Omit `minutes_remaining` from what
+   you tell the user; it carries no real information.
 
 5. **Mention `brancher_ssh_info` for direct SSH access.** The URL from step
    4 is enough for browsing, but if the user wants to SSH in directly (to
@@ -72,6 +74,12 @@ which one:
 - **Pre-create guardrail** (missing label, app has no configured token, app
   not Falcons-eligible) — nothing was created; adding the app's token to
   `HYPERNODE_API_TOKENS` or fixing its plan is the fix, or supply a label.
+- **403 mentioning the "financial nature of the command"** — this is not a
+  bug in this plugin. It means `allow_api_token_usage` is off for the app;
+  an owner/admin must enable "API token usage" in the Hypernode Control
+  Panel (Configuration -> Settings) before any Brancher/financial API call,
+  including `brancher_create`, will succeed. Tell the user this plainly
+  rather than treating it as a transient failure to retry.
 - **Node never becomes SSH-reachable** (`NodeUnreachableTimeoutError`) — the
   node was created but never responded within the reachability timeout.
   Surface this plainly; it usually means retrying later or checking
@@ -99,7 +107,7 @@ User: "Spin up a preview of myapp for ticket-482."
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    {
      "node_name": "myapp-eph198234",
-     "minutes_remaining": 118,
+     "minutes_remaining": None,
      "access_url": "https://myapp-eph198234.hypernode.io/",
      "status": "ready",
      "sanitization_commands_run": 12
@@ -108,7 +116,6 @@ User: "Spin up a preview of myapp for ticket-482."
 2. Report to the user:
    "Preview ready: https://myapp-eph198234.hypernode.io/
     - Node: myapp-eph198234
-    - Brancher minutes remaining on this app: 118
     - Sanitization: 12 commands run (PII anonymized, admin credentials
       reset, payment gateways sandboxed) before this URL was returned.
     - Need to SSH in directly? I can pull connection details via

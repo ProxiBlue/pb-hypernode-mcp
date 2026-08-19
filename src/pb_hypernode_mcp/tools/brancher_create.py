@@ -27,13 +27,20 @@ DEFAULT_CLEAR_SERVICES: tuple[str, ...] = ('cron',)
 
 # Field names read from the app-info response (`client.get(appname, '')`).
 #
-# ASSUMPTION (unverified against the real Hypernode API contract — there is no
-# documented "plan info" endpoint at the time of writing): plan eligibility and
-# Brancher minutes usage are both surfaced on the app-info response under these
-# keys. Correct these field names once the real response shape is confirmed.
-PLAN_TYPE_FIELD = 'plan_type'
-FALCONS_PLAN_VALUE = 'falcons'
-MINUTES_REMAINING_FIELD = 'brancher_minutes_remaining'
+# Verified 2026-08-19 against a real Hypernode account (GET /v2/app/<appname>/):
+# plan eligibility lives at `product.code` (e.g. "FALCON_S_202603DEV" -- match on
+# a "FALCON" substring, not an exact/enum value; Hypernode has multiple Falcon
+# SKUs). The earlier assumption of a top-level `plan_type` field was wrong.
+#
+# There is no minutes-remaining field anywhere on this endpoint -- the earlier
+# assumption of a top-level `brancher_minutes_remaining` field was also wrong
+# and has been dropped entirely (see `minutes_remaining` below, now always
+# `None`). Hypernode's own `--list` CLI reports per-node minutes USED (not an
+# account-wide remaining balance) via the node-list endpoint, which itself
+# requires `allow_api_token_usage` enabled on the app in the Control Panel
+# (Configuration -> Settings) -- financial/Brancher API calls 403 without it.
+# No verified source for a "remaining minutes" figure exists yet.
+FALCONS_PLAN_SUBSTRING = 'FALCON'
 
 
 class BrancherCreateError(ValueError):
@@ -52,11 +59,12 @@ async def create_brancher_node(
 
     app_info = await client.get(appname, '')
 
-    plan_type = str(app_info.get(PLAN_TYPE_FIELD, '')).lower()
-    if plan_type != FALCONS_PLAN_VALUE:
+    product = app_info.get('product') or {}
+    plan_code = str(product.get('code', ''))
+    if FALCONS_PLAN_SUBSTRING not in plan_code.upper():
         raise BrancherCreateError(
             f"App '{appname}' is not on a Falcons-eligible plan (Brancher requires Falcons). "
-            f'Current plan: {app_info.get(PLAN_TYPE_FIELD, "unknown")}.'
+            f'Current plan: {plan_code or "unknown"}.'
         )
 
     body: dict[str, Any] = {
@@ -70,5 +78,7 @@ async def create_brancher_node(
 
     return {
         'node_name': response.get('appname'),
-        'minutes_remaining': app_info.get(MINUTES_REMAINING_FIELD),
+        # No verified API source for a "minutes remaining" figure -- see the
+        # module-level comment above. Always None until one is found.
+        'minutes_remaining': None,
     }

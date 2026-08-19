@@ -34,7 +34,7 @@ async def test_it_creates_a_brancher_node_and_returns_the_node_name() -> None:
         if request.method == 'GET':
             return httpx.Response(
                 200,
-                json={'plan_type': 'falcons', 'brancher_minutes_remaining': 42},
+                json={'product': {'code': 'FALCON_S_202603DEV'}},
             )
 
         return httpx.Response(201, json={'appname': 'myapp-eph123456'})
@@ -78,10 +78,33 @@ async def test_it_rejects_the_call_when_the_app_has_no_configured_token() -> Non
         )
 
 
-async def test_it_rejects_the_call_when_the_app_is_not_on_a_falcons_eligible_plan() -> None:
+async def test_it_accepts_a_falcon_family_plan_code_as_falcons_eligible_substring_match_not_exact() -> (  # noqa: E501
+    None
+):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'GET':
-            return httpx.Response(200, json={'plan_type': 'griffin'})
+            # Real Hypernode plan codes are SKU-specific (e.g. multiple Falcon
+            # SKUs) -- eligibility is a substring match on 'FALCON', not an
+            # exact-value comparison against a single known plan string.
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
+
+        return httpx.Response(201, json={'appname': 'myapp-eph123456'})
+
+    client = make_client(handler)
+
+    result = await create_brancher_node(
+        client,
+        appname='myapp',
+        labels=['ticket-123'],
+    )
+
+    assert result['node_name'] == 'myapp-eph123456'
+
+
+async def test_it_rejects_a_non_falcon_plan_code_as_not_falcons_eligible() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'GET':
+            return httpx.Response(200, json={'product': {'code': 'GRIFFIN_M'}})
 
         pytest.fail(f'unexpected HTTP call: {request.method} {request.url}')
 
@@ -95,15 +118,29 @@ async def test_it_rejects_the_call_when_the_app_is_not_on_a_falcons_eligible_pla
         )
 
 
-async def test_it_includes_remaining_free_minutes_in_the_response_before_alongside_creation() -> (
+async def test_it_surfaces_the_real_plan_code_in_the_rejection_error_message_when_not_falcons_eligible() -> (  # noqa: E501
     None
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'GET':
-            return httpx.Response(
-                200,
-                json={'plan_type': 'falcons', 'brancher_minutes_remaining': 17},
-            )
+            return httpx.Response(200, json={'product': {'code': 'GRIFFIN_M'}})
+
+        pytest.fail(f'unexpected HTTP call: {request.method} {request.url}')
+
+    client = make_client(handler)
+
+    with pytest.raises(BrancherCreateError, match='GRIFFIN_M'):
+        await create_brancher_node(
+            client,
+            appname='myapp',
+            labels=['ticket-123'],
+        )
+
+
+async def test_it_returns_none_for_minutes_remaining_since_no_verified_api_source_exists() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'GET':
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
 
         return httpx.Response(201, json={'appname': 'myapp-eph999'})
 
@@ -115,7 +152,7 @@ async def test_it_includes_remaining_free_minutes_in_the_response_before_alongsi
         labels=['ticket-123'],
     )
 
-    assert result['minutes_remaining'] == 17
+    assert result['minutes_remaining'] is None
 
 
 async def test_it_passes_clear_services_through_to_the_api_request_when_provided() -> None:
@@ -123,7 +160,7 @@ async def test_it_passes_clear_services_through_to_the_api_request_when_provided
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'GET':
-            return httpx.Response(200, json={'plan_type': 'falcons'})
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
 
         captured_bodies.append(request.content)
 
@@ -148,7 +185,7 @@ async def test_it_defaults_clear_services_to_cron_when_not_provided() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'GET':
-            return httpx.Response(200, json={'plan_type': 'falcons'})
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
 
         captured_bodies.append(request.content)
 

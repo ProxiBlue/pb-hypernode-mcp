@@ -29,7 +29,7 @@ def make_client(**tokens: str) -> HypernodeApiClient:
         if request.method == 'GET':
             return httpx.Response(
                 200,
-                json={'plan_type': 'falcons', 'brancher_minutes_remaining': 42},
+                json={'product': {'code': 'FALCON_S_202603DEV'}},
             )
 
         return httpx.Response(201, json={'appname': 'myapp-eph123456'})
@@ -231,7 +231,7 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
 
     assert result == {
         'node_name': 'myapp-eph123456',
-        'minutes_remaining': 42,
+        'minutes_remaining': None,
         'access_url': 'https://myapp-eph123456.hypernode.io/',
         'status': 'ready',
         'sanitization_commands_run': 2,
@@ -256,7 +256,7 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
 
     assert result == {
         'node_name': 'myapp-eph123456',
-        'minutes_remaining': 42,
+        'minutes_remaining': None,
         'access_url': 'https://myapp-eph123456.hypernode.io/',
         'status': 'ready',
         'sanitization_commands_run': 2,
