@@ -132,6 +132,20 @@ async def test_it_parses_a_successful_json_response_into_a_plain_dict() -> None:
     assert isinstance(result, dict)
 
 
+async def test_it_returns_an_empty_dict_for_a_successful_response_with_no_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b'')
+
+    client = HypernodeApiClient(
+        make_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.delete_path('brancher/myapp-eph1/', token_appname='myapp')
+
+    assert result == {}
+
+
 async def test_it_constructs_the_correct_url_for_a_given_appname_and_sub_resource_path() -> None:
     captured_urls: list[str] = []
 

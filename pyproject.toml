@@ -1,6 +1,6 @@
 [project]
 name = "pb-hypernode-mcp"
-version = "0.2.2"
+version = "0.2.3"
 description = "Client-side Claude Code plugin for Hypernode Brancher — spin up disposable prod-clone preview environments, drive AI-assisted changes over SSH, view via browser MCP."
 readme = "README.md"
 requires-python = ">=3.11"

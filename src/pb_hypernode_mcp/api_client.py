@@ -82,6 +82,15 @@ class HypernodeApiClient:
             if response.status_code >= 400:
                 raise HypernodeApiError(response.status_code, response.text)
 
+            # VERIFIED (2026-08-19) against a live DELETE /v2/brancher/<name>/ call: a
+            # successful delete returns an empty body (no JSON at all), while calling
+            # delete again on an already-cancelled node returns a JSON *array* of
+            # strings (not an object). `response.json()` on an empty body raises
+            # json.JSONDecodeError ("Expecting value") -- guard against that here
+            # rather than letting every raw-path caller reimplement the same check.
+            if not response.text:
+                return {}
+
             return response.json()
 
     async def _request(
