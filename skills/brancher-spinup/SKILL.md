@@ -45,6 +45,25 @@ exposes.
      back with the result (ready, or a clear failure) when the background
      agent completes. Do not poll for progress in the foreground; the
      background agent's single completion notification is the signal.
+   - **Run the background agent on the cheapest available model (e.g.
+     Haiku), not the session's default model.** This task is a single
+     deterministic tool call plus reporting the structured result back
+     verbatim — no real reasoning, judgment, or code-writing happens in
+     that agent, so there's no reason to spend a larger model's tokens on
+     it just because it runs a long time. If a background-agent
+     invocation doesn't expose a model override, pick the smallest/cheapest
+     agent type or model setting available rather than defaulting silently
+     to whatever the session is already running.
+   - **If the calling session ends before the background agent completes,
+     do not blindly retry `brancher_create` next session.** Check
+     `brancher_list(appname)` first — a real node may already exist and
+     still be provisioning (or already sanitized-and-ready, if you're very
+     unlucky with timing) from the interrupted attempt. There is no way to
+     "resume" just the wait+sanitize step on an existing node (by design —
+     `brancher_create` is the only entry point so sanitization can never be
+     skipped), so if a stale node is found, delete it first
+     (`brancher_delete`, confirming) rather than leaving it to accrue cost
+     indefinitely, then start a fresh `brancher_create` call.
    - If the app has no configured token (`HYPERNODE_API_TOKENS`), or is not
      on a Falcons-eligible plan, or no label was provided, the call fails
      immediately before anything is created. Surface that error message to
@@ -138,7 +157,9 @@ User: "Spin up a preview of myapp for ticket-482."
 
 0. Tell the user: "This can take up to ~20 minutes — spinning it up in the
    background so I don't block this session. I'll report back when it's
-   ready." Then invoke brancher_create via a background Agent/Task call.
+   ready." Then invoke brancher_create via a background Agent/Task call,
+   run on the cheapest available model (e.g. Haiku) since the agent is
+   just making one deterministic tool call and relaying the result.
 
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    {
