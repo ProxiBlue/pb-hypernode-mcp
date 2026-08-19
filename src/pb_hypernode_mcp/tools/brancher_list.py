@@ -40,13 +40,18 @@ async def list_brancher_nodes(
     appname: str,
     *,
     client: HypernodeApiClient,
-    settings: Settings,
 ) -> list[dict[str, Any]]:
     """List active Brancher nodes for `appname`.
 
     Raises `UnknownAppError` (via `client.get` -> `Settings.token_for`) when
     `appname` has no configured token — there is nothing to authenticate
     the request with.
+
+    `ip` is the node's real, non-null-once-provisioned IP address (`None`
+    until Hypernode's own infra finishes assigning one) — task 022 added
+    this field to the returned dict so the Brancher spin-up flow's
+    IP-assignment poll phase can reuse this same function/endpoint rather
+    than duplicating the HTTP call.
     """
     response = await client.get_path(f'brancher/app/{appname}/', token_appname=appname)
     nodes = response.get('branchers', [])
@@ -56,6 +61,7 @@ async def list_brancher_nodes(
             'name': node['name'],
             'host': f'{node["name"]}.hypernode.io',
             'minutes': node['elapsed_time'] // 60,
+            'ip': node.get('ip'),
         }
         for node in nodes
     ]
@@ -66,11 +72,14 @@ def register(server: FastMCP, client_factory: ClientFactory) -> None:
 
     `client_factory` is called lazily, once per tool invocation, returning
     the `(HypernodeApiClient, Settings)` pair used to service the call.
+    `settings` itself is unused here — kept in the factory's return shape
+    only because other tools sharing this `client_factory` pattern
+    (`brancher_delete`) still need it.
     """
 
     @server.tool(name='brancher_list')
     async def brancher_list(appname: str) -> list[dict[str, Any]]:
         """List active Brancher nodes for `appname`."""
-        client, settings = client_factory()
+        client, _settings = client_factory()
 
-        return await list_brancher_nodes(appname, client=client, settings=settings)
+        return await list_brancher_nodes(appname, client=client)

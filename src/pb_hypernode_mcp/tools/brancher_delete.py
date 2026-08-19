@@ -47,7 +47,7 @@ async def delete_brancher_node(
     validate_eph_node_name(node_name)
 
     appname = appname_from_node_name(node_name)
-    nodes = await list_brancher_nodes(appname, client=client, settings=settings)
+    nodes = await list_brancher_nodes(appname, client=client)
     target = next((node for node in nodes if node['name'] == node_name), None)
 
     if target is None:

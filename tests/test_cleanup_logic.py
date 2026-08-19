@@ -33,13 +33,12 @@ async def test_it_lists_all_active_nodes_with_their_minutes_used() -> None:
         return httpx.Response(200, json=NODES_RESPONSE)
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert nodes == [
-        {'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 12},
-        {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300},
+        {'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 12, 'ip': None},
+        {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300, 'ip': None},
     ]
 
 
@@ -90,7 +89,7 @@ async def test_it_deletes_a_flagged_node_only_after_confirmation() -> None:
     assert delete_called is False
     assert preview['confirm_required'] is True
     assert preview['flagged'] == [
-        {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300},
+        {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300, 'ip': None},
     ]
 
     result = await cleanup_stale_nodes(

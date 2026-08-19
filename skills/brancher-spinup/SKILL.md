@@ -62,11 +62,20 @@ exposes.
    - `status` — always `"ready"` on success (sanitization already ran)
    - `sanitization_commands_run` — how many sanitization commands were
      executed against the node before it was reported ready
+   - `ip_assigned_after_seconds` — how long Hypernode's own provisioning took
+     to assign the node a real ip (phase 1 of the reachability wait)
+   - `ssh_reachable_after_seconds` — how long SSH then took to answer once
+     the ip existed (phase 2)
 
    Report `node_name`, `access_url`, `status`, and `sanitization_commands_run`
    back to the user — the sanitization count is the guardrail evidence that
    this node is safe to hand to a client. Omit `minutes_remaining` from what
-   you tell the user; it carries no real information.
+   you tell the user; it carries no real information. When the two phase
+   timings are notably uneven (e.g. most of the wait was IP assignment, or
+   most of it was SSH), mention the split — e.g. "IP assigned after 6 min,
+   SSH reachable 40s after that" — since it gives the user real signal about
+   where the time went, useful if they need to report a slow spin-up back to
+   Hypernode support.
 
 5. **Mention `brancher_ssh_info` for direct SSH access.** The URL from step
    4 is enough for browsing, but if the user wants to SSH in directly (to
@@ -77,8 +86,11 @@ exposes.
 
 ## Errors
 
-`brancher_create` can fail at three points, and the error message differs by
-which one:
+`brancher_create` can fail at four points, and the error message differs by
+which one — the wait itself is two explicit, separately-timed phases (an
+ip-assignment poll against Hypernode's REST API, then an SSH-reachability
+poll), so a timeout during the wait is never a single generic "unreachable"
+error; the exception type alone tells you which phase stalled:
 
 - **Pre-create guardrail** (missing label, app has no configured token, app
   not Falcons-eligible) — nothing was created; adding the app's token to
@@ -89,12 +101,21 @@ which one:
   Panel (Configuration -> Settings) before any Brancher/financial API call,
   including `brancher_create`, will succeed. Tell the user this plainly
   rather than treating it as a transient failure to retry.
-- **Node never becomes SSH-reachable** (`NodeUnreachableTimeoutError`) — the
-  node was created but never responded within the reachability timeout
-  (20 minutes by default — well above Hypernode's own stated 15-minute
-  worst case, so a timeout here is a genuine signal, not just impatience).
-  Surface this plainly; it usually means retrying later or checking
-  Hypernode's own status.
+- **Node never gets assigned an ip** (`NodeIpNeverAssignedError`) — phase 1:
+  the node was created but Hypernode's own provisioning never gave it a real
+  ip address within the timeout. This is unambiguously Hypernode's own
+  infra stalling, not anything on this plugin's side — SSH was never even
+  attempted, since there was no host to attempt it against. Tell the user
+  this plainly and suggest checking Hypernode's own status or contacting
+  their support; retrying this plugin's config will not fix it.
+- **Node gets an ip but SSH never becomes reachable**
+  (`NodeUnreachableTimeoutError`) — phase 2: the node has a real ip, but SSH
+  itself never answered within the remaining time budget (the overall
+  reachability timeout, 20 minutes by default, minus however long phase 1
+  already took — phase 2 does not get a fresh timeout of its own). This
+  points at SSH-specific causes (sshd still starting, host key/config
+  issues) rather than Hypernode's provisioning. Surface this plainly; it
+  usually means retrying later or checking SSH connectivity specifically.
 - **Sanitization failed partway through** (`SanitizationFailedError`) — the
   node was created and became reachable, but a sanitization command failed.
   **The access URL is deliberately withheld in this case** — do not attempt
@@ -125,7 +146,9 @@ User: "Spin up a preview of myapp for ticket-482."
      "minutes_remaining": None,
      "access_url": "https://myapp-eph198234.hypernode.io/",
      "status": "ready",
-     "sanitization_commands_run": 12
+     "sanitization_commands_run": 12,
+     "ip_assigned_after_seconds": 360,
+     "ssh_reachable_after_seconds": 40
    }
 
 2. Report to the user:
@@ -133,6 +156,7 @@ User: "Spin up a preview of myapp for ticket-482."
     - Node: myapp-eph198234
     - Sanitization: 12 commands run (PII anonymized, admin credentials
       reset, payment gateways sandboxed) before this URL was returned.
+    - Timing: IP assigned after 6 min, SSH reachable 40s after that.
     - Need to SSH in directly? I can pull connection details via
       brancher_ssh_info."
 ```
@@ -161,3 +185,12 @@ already-tested `spinup_sanitized_brancher_node()` orchestration function.
 The wrapper itself is unit-tested directly (`tests/tools/test_brancher_spinup_flow.py`,
 `tests/test_server.py`) since this markdown file's prose is not a unit-testable
 surface — see that task's Implementation Notes for the test/prose split.
+
+Task 022 split the wait into two explicit phases: `_wait_for_ip_assignment()`
+polls the Brancher list endpoint (via `list_brancher_nodes()`, reused
+as-is — no SSH, cheap, can start immediately) until the node's `ip` field is
+non-null, raising `NodeIpNeverAssignedError` on timeout; only then does
+`_wait_until_reachable()` (unchanged in shape, but now given only the
+remaining time budget) start polling SSH. Both phase durations are threaded
+through into the returned dict as `ip_assigned_after_seconds`/
+`ssh_reachable_after_seconds`.

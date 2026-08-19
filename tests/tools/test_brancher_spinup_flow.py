@@ -18,22 +18,115 @@ from pb_hypernode_mcp.sanitization.config import (
     SanitizationConfig,
 )
 from pb_hypernode_mcp.tools.brancher_spinup_flow import (
+    DEFAULT_READY_PROBE_COMMAND,
+    NodeIpNeverAssignedError,
     NodeUnreachableTimeoutError,
     SanitizationFailedError,
     register,
     spinup_sanitized_brancher_node,
 )
 
+CREATED_NODE_NAME = 'myapp-eph123456'
+
 
 def make_client(**tokens: str) -> HypernodeApiClient:
+    """A client whose Brancher list endpoint reports the created node's ip as
+    already assigned, so tests that only care about the sanitization/ssh
+    phases aren't slowed down or broken by the new ip-assignment poll phase.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+
+        if request.method == 'GET' and 'brancher/app/' in url:
+            return httpx.Response(
+                200,
+                json={
+                    'branchers': [
+                        {
+                            'name': CREATED_NODE_NAME,
+                            'ip': '203.0.113.10',
+                            'elapsed_time': 60,
+                        },
+                    ],
+                },
+            )
+
         if request.method == 'GET':
             return httpx.Response(
                 200,
                 json={'product': {'code': 'FALCON_S_202603DEV'}},
             )
 
-        return httpx.Response(201, json={'name': 'myapp-eph123456'})
+        return httpx.Response(201, json={'name': CREATED_NODE_NAME})
+
+    return HypernodeApiClient(
+        Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def make_client_ip_never_assigned(**tokens: str) -> HypernodeApiClient:
+    """A client whose Brancher list endpoint always reports a null ip."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+
+        if request.method == 'GET' and 'brancher/app/' in url:
+            return httpx.Response(
+                200,
+                json={
+                    'branchers': [
+                        {'name': CREATED_NODE_NAME, 'ip': None, 'elapsed_time': 60},
+                    ],
+                },
+            )
+
+        if request.method == 'GET':
+            return httpx.Response(
+                200,
+                json={'product': {'code': 'FALCON_S_202603DEV'}},
+            )
+
+        return httpx.Response(201, json={'name': CREATED_NODE_NAME})
+
+    return HypernodeApiClient(
+        Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def make_client_ip_assigned_after_polls(
+    assign_after_polls: int, **tokens: str
+) -> HypernodeApiClient:
+    """A client whose Brancher list endpoint reports a null ip for the first
+    `assign_after_polls` GET calls to the list endpoint, then a real ip from then on.
+    """
+    poll_count = {'value': 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+
+        if request.method == 'GET' and 'brancher/app/' in url:
+            poll_count['value'] += 1
+            ip = '203.0.113.10' if poll_count['value'] > assign_after_polls else None
+
+            return httpx.Response(
+                200,
+                json={
+                    'branchers': [
+                        {'name': CREATED_NODE_NAME, 'ip': ip, 'elapsed_time': 60},
+                    ],
+                },
+            )
+
+        if request.method == 'GET':
+            return httpx.Response(
+                200,
+                json={'product': {'code': 'FALCON_S_202603DEV'}},
+            )
+
+        return httpx.Response(201, json={'name': CREATED_NODE_NAME})
 
     return HypernodeApiClient(
         Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),
@@ -165,6 +258,207 @@ class AlwaysUnreachableExec:
         raise ConnectionError('ssh: connect to host ... Connection refused')
 
 
+# --- tests for the two-phase (ip-poll then ssh-poll) reachability wait (task 022) ---
+
+
+async def test_it_polls_the_list_endpoint_until_the_node_has_a_non_null_ip_before_attempting_ssh() -> (  # noqa: E501
+    None
+):
+    exec_fn = RecordingExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    result = await spinup_sanitized_brancher_node(
+        make_client_ip_assigned_after_polls(assign_after_polls=3),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        reachability_poll_interval=1.0,
+        reachability_timeout=120.0,
+        sleep=fake_sleep,
+        clock=fake_clock,
+    )
+
+    assert result['status'] == 'ready'
+    # 3 polls came back null before the 4th reported the real ip -> at least
+    # 3 sleeps of the poll interval were spent waiting on ip assignment alone.
+    assert result['ip_assigned_after_seconds'] >= 3.0
+
+
+async def test_it_raises_node_ip_never_assigned_error_when_ip_is_never_assigned_within_the_timeout() -> (  # noqa: E501
+    None
+):
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    with pytest.raises(NodeIpNeverAssignedError, match=CREATED_NODE_NAME):
+        await spinup_sanitized_brancher_node(
+            make_client_ip_never_assigned(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=make_sanitization_config(),
+            exec_command=RecordingExec(),
+            reachability_poll_interval=1.0,
+            reachability_timeout=5.0,
+            sleep=fake_sleep,
+            clock=fake_clock,
+        )
+
+
+async def test_it_does_not_attempt_any_ssh_exec_command_call_while_ip_is_still_null() -> None:
+    exec_fn = RecordingExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    with pytest.raises(NodeIpNeverAssignedError):
+        await spinup_sanitized_brancher_node(
+            make_client_ip_never_assigned(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=make_sanitization_config(),
+            exec_command=exec_fn,
+            reachability_poll_interval=1.0,
+            reachability_timeout=5.0,
+            sleep=fake_sleep,
+            clock=fake_clock,
+        )
+
+    assert exec_fn.calls == []
+
+
+async def test_it_starts_the_ssh_reachability_phase_only_after_ip_is_assigned() -> None:
+    exec_fn = RecordingExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    await spinup_sanitized_brancher_node(
+        make_client_ip_assigned_after_polls(assign_after_polls=2),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        reachability_poll_interval=1.0,
+        reachability_timeout=120.0,
+        sleep=fake_sleep,
+        clock=fake_clock,
+    )
+
+    # The first exec_command call is the reachability probe -- it must only
+    # have happened once fake_time already reflects the ip-poll delay.
+    assert fake_time['now'] >= 2.0
+    assert exec_fn.calls[0][1] == DEFAULT_READY_PROBE_COMMAND
+
+
+async def test_it_raises_node_unreachable_timeout_error_when_ip_is_assigned_but_ssh_never_becomes_reachable() -> (  # noqa: E501
+    None
+):
+    exec_fn = AlwaysUnreachableExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    with pytest.raises(NodeUnreachableTimeoutError, match=CREATED_NODE_NAME):
+        await spinup_sanitized_brancher_node(
+            make_client(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=make_sanitization_config(),
+            exec_command=exec_fn,
+            reachability_poll_interval=1.0,
+            reachability_timeout=5.0,
+            sleep=fake_sleep,
+            clock=fake_clock,
+        )
+
+    assert exec_fn.call_count >= 2
+
+
+async def test_it_reports_how_long_ip_assignment_and_ssh_reachability_each_took_on_success() -> (
+    None
+):
+    exec_fn = RecordingExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    result = await spinup_sanitized_brancher_node(
+        make_client_ip_assigned_after_polls(assign_after_polls=2),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        reachability_poll_interval=1.0,
+        reachability_timeout=120.0,
+        sleep=fake_sleep,
+        clock=fake_clock,
+    )
+
+    assert result['ip_assigned_after_seconds'] >= 2.0
+    assert result['ssh_reachable_after_seconds'] >= 0.0
+
+
+async def test_it_splits_the_overall_timeout_across_both_phases_rather_than_giving_each_phase_a_full_fresh_timeout() -> (  # noqa: E501
+    None
+):
+    # ip assignment eats 4s of a 5s overall budget; ssh then never responds, so
+    # phase 2 must fail almost immediately (only ~1s of budget left) rather than
+    # getting a fresh 5s of its own on top.
+    exec_fn = AlwaysUnreachableExec()
+    fake_time = {'now': 0.0}
+
+    async def fake_sleep(seconds: float) -> None:
+        fake_time['now'] += seconds
+
+    def fake_clock() -> float:
+        return fake_time['now']
+
+    with pytest.raises(NodeUnreachableTimeoutError):
+        await spinup_sanitized_brancher_node(
+            make_client_ip_assigned_after_polls(assign_after_polls=4),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=make_sanitization_config(),
+            exec_command=exec_fn,
+            reachability_poll_interval=1.0,
+            reachability_timeout=5.0,
+            sleep=fake_sleep,
+            clock=fake_clock,
+        )
+
+    # Total time spent across both phases must stay within the configured
+    # overall timeout, not (ip phase) + (a fresh ssh phase timeout) = ~10s.
+    assert fake_time['now'] < 6.0
+
+
 async def test_it_times_out_with_a_clear_error_if_the_node_never_becomes_ssh_reachable() -> None:
     exec_fn = AlwaysUnreachableExec()
     fake_time = {'now': 0.0}
@@ -266,6 +560,9 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
         'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
     )
 
+    assert isinstance(result, dict)
+    assert result.pop('ip_assigned_after_seconds') >= 0
+    assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result == {
         'node_name': 'myapp-eph123456',
         'minutes_remaining': None,
@@ -291,6 +588,9 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
         'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
     )
 
+    assert isinstance(result, dict)
+    assert result.pop('ip_assigned_after_seconds') >= 0
+    assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result == {
         'node_name': 'myapp-eph123456',
         'minutes_remaining': None,

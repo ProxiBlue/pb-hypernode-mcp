@@ -34,9 +34,8 @@ async def test_it_lists_all_active_brancher_nodes_for_an_app() -> None:
         )
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert len(nodes) == 2
 
@@ -57,9 +56,8 @@ async def test_it_lists_brancher_nodes_via_the_non_deprecated_brancher_app_appna
         return httpx.Response(200, json={'branchers': []})
 
     client = make_client(handler)
-    settings = make_settings()
 
-    await list_brancher_nodes('myapp', client=client, settings=settings)
+    await list_brancher_nodes('myapp', client=client)
 
     assert captured_urls == ['https://api.hypernode.com/v2/brancher/app/myapp/']
 
@@ -76,12 +74,11 @@ async def test_it_returns_each_nodes_name_host_and_minutes() -> None:
         )
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert nodes == [
-        {'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 12},
+        {'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 12, 'ip': None},
     ]
 
 
@@ -97,9 +94,8 @@ async def test_it_parses_the_branchers_key_from_the_list_response_not_nodes() ->
         )
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert nodes == []
 
@@ -117,11 +113,45 @@ async def test_it_derives_host_from_the_node_name_since_the_api_does_not_return_
         )
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert nodes[0]['host'] == 'ppsdev-ephp8b5c2.hypernode.io'
+
+
+async def test_it_returns_the_nodes_ip_field_null_until_provisioning_assigns_one() -> None:
+    """Task 022: the ip field is surfaced as-is (including `None`) so the Brancher
+    spin-up flow's IP-assignment poll phase can reuse this function/endpoint."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={'branchers': [{'name': 'myapp-eph1', 'elapsed_time': 720, 'ip': None}]},
+        )
+
+    client = make_client(handler)
+
+    nodes = await list_brancher_nodes('myapp', client=client)
+
+    assert nodes[0]['ip'] is None
+
+
+async def test_it_returns_the_nodes_assigned_ip_once_provisioning_completes() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                'branchers': [
+                    {'name': 'myapp-eph1', 'elapsed_time': 720, 'ip': '203.0.113.10'},
+                ],
+            },
+        )
+
+    client = make_client(handler)
+
+    nodes = await list_brancher_nodes('myapp', client=client)
+
+    assert nodes[0]['ip'] == '203.0.113.10'
 
 
 async def test_it_returns_an_empty_list_when_no_brancher_nodes_exist_for_the_app() -> None:
@@ -129,9 +159,8 @@ async def test_it_returns_an_empty_list_when_no_brancher_nodes_exist_for_the_app
         return httpx.Response(200, json={'branchers': []})
 
     client = make_client(handler)
-    settings = make_settings()
 
-    nodes = await list_brancher_nodes('myapp', client=client, settings=settings)
+    nodes = await list_brancher_nodes('myapp', client=client)
 
     assert nodes == []
 
@@ -144,4 +173,4 @@ async def test_it_rejects_the_call_when_the_app_has_no_configured_token() -> Non
     client = HypernodeApiClient(settings, transport=httpx.MockTransport(handler))
 
     with pytest.raises(UnknownAppError, match='myapp'):
-        await list_brancher_nodes('myapp', client=client, settings=settings)
+        await list_brancher_nodes('myapp', client=client)

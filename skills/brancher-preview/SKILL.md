@@ -23,7 +23,13 @@ minutes. This skill does not delete the node itself — that is
    a label if missing, call `brancher_create`, report `node_name`,
    `access_url`, `status`, `sanitization_commands_run` — `minutes_remaining`
    is always `None`; see the `brancher-spinup` skill for why, and don't
-   report it as if it were meaningful data).
+   report it as if it were meaningful data). The wait itself is two
+   separately-timed phases (ip-assignment, then SSH-reachability); on
+   success report the `ip_assigned_after_seconds`/`ssh_reachable_after_seconds`
+   split too when it's notably uneven, and see `brancher-spinup`'s Errors
+   section for how to tell the two distinct timeout failure modes apart
+   (`NodeIpNeverAssignedError` vs `NodeUnreachableTimeoutError`) if spin-up
+   fails here.
    Do not reimplement or shortcut that create -> wait -> sanitize -> ready
    sequence here — reuse it as a step. Nothing in this skill proceeds until
    `brancher_create` reports `status: "ready"`.
@@ -106,7 +112,8 @@ User: "Spin up a preview of myapp for ticket-482, push my local branch's
 
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    { node_name: "myapp-eph198234", access_url: "https://myapp-eph198234.hypernode.io/",
-     minutes_remaining: None, status: "ready", sanitization_commands_run: 12 }
+     minutes_remaining: None, status: "ready", sanitization_commands_run: 12,
+     ip_assigned_after_seconds: 360, ssh_reachable_after_seconds: 40 }
 
 2. brancher_put(node_name="myapp-eph198234",
      local_path="app/design/frontend/Uptactics/pps/templates/checkout/summary.phtml",

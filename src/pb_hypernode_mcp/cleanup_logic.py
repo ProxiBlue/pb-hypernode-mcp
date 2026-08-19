@@ -49,7 +49,7 @@ async def cleanup_stale_nodes(
     anything; only a `confirm=True` re-call issues the deletes. When nothing is flagged,
     reports that there is nothing to clean up regardless of `confirm`.
     """
-    nodes = await list_brancher_nodes(appname, client=client, settings=settings)
+    nodes = await list_brancher_nodes(appname, client=client)
     flagged = flag_stale_nodes(nodes, threshold_minutes)
 
     if not flagged:

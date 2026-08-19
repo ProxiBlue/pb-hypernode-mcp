@@ -32,6 +32,7 @@ from pb_hypernode_mcp.sanitization.config import (
 )
 from pb_hypernode_mcp.tools.brancher_create import create_brancher_node
 from pb_hypernode_mcp.tools.brancher_exec import exec_command as default_exec_command
+from pb_hypernode_mcp.tools.brancher_list import list_brancher_nodes
 
 ExecCommandFn = Callable[..., Awaitable[dict[str, Any]]]
 SleepFn = Callable[[float], Awaitable[None]]
@@ -49,8 +50,35 @@ class BrancherSpinupError(Exception):
     """Base class for failures during the create -> wait -> sanitize spin-up flow."""
 
 
+class NodeIpNeverAssignedError(BrancherSpinupError):
+    """Raised when Hypernode never assigns the node an ip within the configured timeout.
+
+    This is phase 1 of the reachability wait (task 022) — a plain REST poll
+    against the Brancher list endpoint, no SSH involved. Timing out here
+    means Hypernode's own provisioning stalled; it is deliberately a
+    different exception than `NodeUnreachableTimeoutError` so a caller can
+    tell "their infra never gave us a host" apart from "we had a host but
+    SSH never answered" without inspecting message text.
+    """
+
+    def __init__(self, node_name: str, timeout: float) -> None:
+        self.node_name = node_name
+        self.timeout = timeout
+        super().__init__(
+            f'Brancher node {node_name!r} was never assigned an IP address within '
+            f'{timeout}s -- this is '
+            "Hypernode's own provisioning, not an SSH/config issue on this plugin's side."
+        )
+
+
 class NodeUnreachableTimeoutError(BrancherSpinupError):
-    """Raised when the node never becomes SSH-reachable within the configured timeout."""
+    """Raised when the node never becomes SSH-reachable within the configured timeout.
+
+    Phase 2 of the reachability wait (task 022) — only reached once
+    `NodeIpNeverAssignedError` could no longer apply (the node already has an
+    ip). A timeout here means the ip was assigned but SSH itself never
+    answered — possibly our SSH config, or sshd still starting on the node.
+    """
 
 
 class SanitizationFailedError(BrancherSpinupError):
@@ -71,6 +99,39 @@ class SanitizationFailedError(BrancherSpinupError):
             f'{command!r} ({commands_completed} prior command(s) succeeded). '
             'The node is NOT ready and its access URL is being withheld.'
         )
+
+
+async def _wait_for_ip_assignment(
+    node_name: str,
+    appname: str,
+    *,
+    client: HypernodeApiClient,
+    poll_interval: float,
+    timeout: float,
+    sleep: SleepFn,
+    clock: ClockFn,
+) -> float:
+    """Poll the Brancher list endpoint until `node_name` has a non-null `ip`.
+
+    Phase 1 of the reachability wait (task 022): a plain REST call, no SSH
+    involved, so it can run from the moment the node is created rather than
+    hammering SSH against a host that doesn't exist yet. Returns the number
+    of seconds elapsed before the ip was assigned, for reporting.
+    """
+    start = clock()
+    deadline = start + timeout
+
+    while True:
+        nodes = await list_brancher_nodes(appname, client=client)
+        node = next((candidate for candidate in nodes if candidate['name'] == node_name), None)
+
+        if node is not None and node.get('ip'):
+            return clock() - start
+
+        if clock() >= deadline:
+            raise NodeIpNeverAssignedError(node_name, timeout)
+
+        await sleep(poll_interval)
 
 
 async def _wait_until_reachable(
@@ -114,7 +175,16 @@ async def spinup_sanitized_brancher_node(
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> dict[str, Any]:
-    """Create a Brancher node, wait for it, sanitize it, and only then report it ready."""
+    """Create a Brancher node, wait for it, sanitize it, and only then report it ready.
+
+    The wait itself is two explicit, separately-timed phases (task 022):
+    phase 1 polls the Brancher list endpoint (no SSH) until Hypernode
+    assigns the node a real `ip`; phase 2 then polls SSH reachability, using
+    whatever's left of `reachability_timeout` after phase 1 -- the two
+    phases together never exceed that one configured ceiling. Both
+    durations are surfaced in the returned dict on success so a caller can
+    report exactly where the time went, not just a bare "ready".
+    """
     created = await create_brancher_node(
         client,
         appname,
@@ -123,15 +193,29 @@ async def spinup_sanitized_brancher_node(
     )
     node_name = created['node_name']
 
-    await _wait_until_reachable(
+    ip_assigned_after_seconds = await _wait_for_ip_assignment(
         node_name,
-        exec_command=exec_command,
-        probe_command=ready_probe_command,
+        appname,
+        client=client,
         poll_interval=reachability_poll_interval,
         timeout=reachability_timeout,
         sleep=sleep,
         clock=clock,
     )
+
+    remaining_timeout = reachability_timeout - ip_assigned_after_seconds
+    ssh_wait_start = clock()
+
+    await _wait_until_reachable(
+        node_name,
+        exec_command=exec_command,
+        probe_command=ready_probe_command,
+        poll_interval=reachability_poll_interval,
+        timeout=remaining_timeout,
+        sleep=sleep,
+        clock=clock,
+    )
+    ssh_reachable_after_seconds = clock() - ssh_wait_start
 
     commands = generate_sanitization_commands(sanitization_config)
 
@@ -146,6 +230,8 @@ async def spinup_sanitized_brancher_node(
         'access_url': ACCESS_URL_TEMPLATE.format(node_name=node_name),
         'status': 'ready',
         'sanitization_commands_run': len(commands),
+        'ip_assigned_after_seconds': ip_assigned_after_seconds,
+        'ssh_reachable_after_seconds': ssh_reachable_after_seconds,
     }
 
 

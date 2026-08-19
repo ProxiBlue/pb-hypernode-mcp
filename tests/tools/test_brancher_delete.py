@@ -67,6 +67,7 @@ async def test_it_surfaces_the_target_nodes_details_before_deletion_completes() 
         'name': 'myapp-eph1',
         'host': 'myapp-eph1.hypernode.io',
         'minutes': 12,
+        'ip': None,
     }
 
 

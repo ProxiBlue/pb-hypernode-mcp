@@ -48,7 +48,9 @@ class FakeApiClient:
 
     async def get_path(self, path: str, *, token_appname: str) -> dict[str, Any]:
         return {
-            'branchers': [{'name': 'myapp-eph1', 'elapsed_time': 300}],
+            'branchers': [
+                {'name': 'myapp-eph1', 'elapsed_time': 300, 'ip': '203.0.113.10'},
+            ],
         }
 
     async def post_path(
@@ -168,6 +170,9 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
         'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
     )
 
+    assert isinstance(result, dict)
+    assert result.pop('ip_assigned_after_seconds') >= 0
+    assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -206,6 +211,9 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
 
     # A result missing sanitization proof would mean an unsanitized node was
     # reported back to the caller.
+    assert isinstance(result, dict)
+    assert result.pop('ip_assigned_after_seconds') >= 0
+    assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -243,6 +251,9 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
         'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
     )
 
+    assert isinstance(result, dict)
+    assert result.pop('ip_assigned_after_seconds') >= 0
+    assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -266,7 +277,14 @@ async def test_it_exposes_brancher_list_as_a_callable_mcp_tool_on_the_server(
     _content, result = await server.call_tool('brancher_list', {'appname': 'myapp'})
 
     assert result == {
-        'result': [{'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 5}],
+        'result': [
+            {
+                'name': 'myapp-eph1',
+                'host': 'myapp-eph1.hypernode.io',
+                'minutes': 5,
+                'ip': '203.0.113.10',
+            },
+        ],
     }
 
 
