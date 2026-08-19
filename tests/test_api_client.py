@@ -218,3 +218,68 @@ async def test_it_resolves_the_token_via_an_explicit_token_appname_when_the_url_
     await client.get('myapp-eph1', '', token_appname='myapp')
 
     assert captured_headers == ['Token parent-token']
+
+
+async def test_it_sends_a_get_path_request_against_a_raw_path_with_no_app_prefix() -> None:
+    captured_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_urls.append(str(request.url))
+
+        return httpx.Response(200, json={'branchers': []})
+
+    client = HypernodeApiClient(
+        make_settings(myapp='test-token'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.get_path('brancher/app/myapp/', token_appname='myapp')
+
+    assert captured_urls == ['https://api.hypernode.com/v2/brancher/app/myapp/']
+    assert result == {'branchers': []}
+
+
+async def test_it_sends_a_post_path_request_against_a_raw_path_with_no_app_prefix() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured['method'] = request.method
+        captured['url'] = str(request.url)
+        captured['body'] = request.content
+
+        return httpx.Response(201, json={'name': 'myapp-eph1'})
+
+    client = HypernodeApiClient(
+        make_settings(myapp='test-token'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.post_path(
+        'brancher/app/myapp/', json={'labels': ['x']}, token_appname='myapp'
+    )
+
+    assert captured['method'] == 'POST'
+    assert captured['url'] == 'https://api.hypernode.com/v2/brancher/app/myapp/'
+    assert captured['body'] == b'{"labels":["x"]}'
+    assert result == {'name': 'myapp-eph1'}
+
+
+async def test_it_sends_a_delete_path_request_against_a_raw_path_with_no_app_prefix() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured['method'] = request.method
+        captured['url'] = str(request.url)
+
+        return httpx.Response(204, json={})
+
+    client = HypernodeApiClient(
+        make_settings(myapp='test-token'),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.delete_path('brancher/myapp-eph1/', token_appname='myapp')
+
+    assert captured['method'] == 'DELETE'
+    assert captured['url'] == 'https://api.hypernode.com/v2/brancher/myapp-eph1/'
+    assert result == {}

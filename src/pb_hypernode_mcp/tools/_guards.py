@@ -4,14 +4,21 @@ Node names follow Hypernode's Brancher naming convention `<appname>-eph<id>`
 (e.g. `pps-eph123456`). This module is the single source of truth for that
 validation so every tool that accepts a node name (ssh_info, exec, put, ...)
 enforces the same hard guard rather than reimplementing the regex.
+
+VERIFIED (2026-08-19): the `-eph<id>` suffix is lowercase-alphanumeric, not
+digit-only — both a real account's node (`ppsdev-ephp8b5c2`, suffix
+`p8b5c2`) and the official `ByteInternet/hypernode-api-python` docs' own
+examples (`yourappname-ephoj82yb`, suffix `oj82yb`) show alphanumeric
+suffixes. A digit-only regex rejected the real node's own name when this
+plugin tried to delete it through `brancher_delete`.
 """
 
 from __future__ import annotations
 
 import re
 
-_EPH_NODE_NAME_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-eph[0-9]+$')
-_APPNAME_FROM_NODE_NAME_PATTERN = re.compile(r'^(?P<appname>.+)-eph[0-9]+$')
+_EPH_NODE_NAME_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-eph[a-z0-9]+$')
+_APPNAME_FROM_NODE_NAME_PATTERN = re.compile(r'^(?P<appname>.+)-eph[a-z0-9]+$')
 
 
 class InvalidNodeNameError(ValueError):

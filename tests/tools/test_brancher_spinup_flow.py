@@ -32,7 +32,7 @@ def make_client(**tokens: str) -> HypernodeApiClient:
                 json={'product': {'code': 'FALCON_S_202603DEV'}},
             )
 
-        return httpx.Response(201, json={'appname': 'myapp-eph123456'})
+        return httpx.Response(201, json={'name': 'myapp-eph123456'})
 
     return HypernodeApiClient(
         Settings(hypernode_api_tokens=tokens or {'myapp': 'test-token'}),

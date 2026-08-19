@@ -64,7 +64,10 @@ async def delete_brancher_node(
             ),
         }
 
-    await client.delete(node_name, '', token_appname=appname)
+    # VERIFIED (2026-08-19) against the official `ByteInternet/hypernode-api-python`
+    # client's `client.py`: the destroy endpoint is `DELETE /v2/brancher/<name>/` — a
+    # *different* top-level path than list/create, not nested under `/v2/app/<appname>/`.
+    await client.delete_path(f'brancher/{node_name}/', token_appname=appname)
 
     return {
         'deleted': True,

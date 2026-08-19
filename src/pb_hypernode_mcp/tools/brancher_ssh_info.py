@@ -34,7 +34,9 @@ async def get_ssh_info(client: HypernodeApiClient, node_name: str) -> dict[str, 
     appname = appname_from_node_name(node_name)
     detail = await client.get(node_name, '', token_appname=appname)
 
-    if not detail.get('ip_address'):
+    # VERIFIED (2026-08-19) via a live curl on `GET /v2/app/ppsdev/`: the real field
+    # is `ip`, not `ip_address`.
+    if not detail.get('ip'):
         raise NodeNotReadyError(f'Brancher node {node_name!r} is not ready yet (no IP assigned).')
 
     return {

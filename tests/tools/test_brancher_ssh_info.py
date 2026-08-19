@@ -21,7 +21,7 @@ def make_client(handler, **tokens: str) -> HypernodeApiClient:
 
 async def test_it_returns_host_user_and_port_for_a_valid_brancher_node_name() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={'ip_address': '203.0.113.10'})
+        return httpx.Response(200, json={'ip': '203.0.113.10'})
 
     client = make_client(handler)
 
@@ -46,7 +46,21 @@ async def test_it_rejects_a_node_name_that_does_not_match_the_eph_naming_pattern
 
 async def test_it_returns_a_clear_error_when_the_node_is_not_yet_ready_no_ip_assigned() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={'ip_address': None})
+        return httpx.Response(200, json={'ip': None})
+
+    client = make_client(handler)
+
+    with pytest.raises(NodeNotReadyError, match='pps-eph123456'):
+        await get_ssh_info(client, 'pps-eph123456')
+
+
+async def test_it_reads_node_readiness_from_the_ip_field_not_ip_address() -> None:
+    """Live curl on `GET /v2/app/ppsdev/` confirms the real field is `ip`, not
+    `ip_address` — a response carrying only the old, wrong `ip_address` field (and no
+    `ip` field at all) must still be treated as not-ready."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={'ip_address': '203.0.113.10'})
 
     client = make_client(handler)
 
@@ -65,7 +79,7 @@ async def test_it_derives_the_correct_appname_from_a_node_name_to_resolve_the_ri
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers['authorization'] == 'Token parent-token'
 
-        return httpx.Response(200, json={'ip_address': '203.0.113.10'})
+        return httpx.Response(200, json={'ip': '203.0.113.10'})
 
     client = make_client(handler, pps='parent-token')
 
@@ -80,7 +94,7 @@ async def test_it_derives_the_correct_appname_from_a_node_name_to_resolve_the_ri
 
 async def test_it_registers_the_brancher_ssh_info_tool_on_the_server_and_it_is_callable() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={'ip_address': '203.0.113.10'})
+        return httpx.Response(200, json={'ip': '203.0.113.10'})
 
     server = FastMCP(name='test-server')
     register(server, lambda: make_client(handler))

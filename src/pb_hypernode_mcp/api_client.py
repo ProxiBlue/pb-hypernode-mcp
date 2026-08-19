@@ -56,6 +56,34 @@ class HypernodeApiClient:
         """Build the full URL for `/app/<appname>/<path>`."""
         return f'{self._base_url}app/{appname}/{path}'
 
+    def _build_raw_url(self, path: str) -> str:
+        """Build the full URL for an arbitrary `<path>`, with no `/app/<appname>/` prefix.
+
+        Some Brancher endpoints (e.g. `/v2/brancher/app/<appname>/`,
+        `/v2/brancher/<name>/`) don't fit the `/app/<appname>/<path>` shape
+        that every other Hypernode API resource uses — see `get_path`/
+        `post_path`/`delete_path`.
+        """
+        return f'{self._base_url}{path}'
+
+    async def _send(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(transport=self._transport, timeout=self._timeout) as client:
+            try:
+                response = await client.request(method, url, headers=headers, json=json)
+            except httpx.TimeoutException as exc:
+                raise HypernodeApiTimeoutError(str(exc)) from exc
+
+            if response.status_code >= 400:
+                raise HypernodeApiError(response.status_code, response.text)
+
+            return response.json()
+
     async def _request(
         self,
         method: str,
@@ -65,21 +93,12 @@ class HypernodeApiClient:
         json: dict[str, Any] | None = None,
         token_appname: str | None = None,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(transport=self._transport, timeout=self._timeout) as client:
-            try:
-                response = await client.request(
-                    method,
-                    self._build_url(appname, path),
-                    headers=self._headers(token_appname if token_appname is not None else appname),
-                    json=json,
-                )
-            except httpx.TimeoutException as exc:
-                raise HypernodeApiTimeoutError(str(exc)) from exc
-
-            if response.status_code >= 400:
-                raise HypernodeApiError(response.status_code, response.text)
-
-            return response.json()
+        return await self._send(
+            method,
+            self._build_url(appname, path),
+            self._headers(token_appname if token_appname is not None else appname),
+            json,
+        )
 
     async def get(
         self,
@@ -117,3 +136,32 @@ class HypernodeApiClient:
     ) -> dict[str, Any]:
         """Perform a DELETE request against `/app/<appname>/<path>` to remove a resource."""
         return await self._request('DELETE', appname, path, token_appname=token_appname)
+
+    async def get_path(self, path: str, *, token_appname: str) -> dict[str, Any]:
+        """Perform a GET request against the raw `<path>`, with no `/app/<appname>/` prefix.
+
+        `token_appname` is required (no `appname`-derived default exists for
+        a raw path) and is resolved via `Settings.token_for(token_appname)`,
+        same as every other request method.
+        """
+        return await self._send(
+            'GET', self._build_raw_url(path), self._headers(token_appname), None
+        )
+
+    async def post_path(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        token_appname: str,
+    ) -> dict[str, Any]:
+        """Perform a POST request against the raw `<path>`, with no `/app/<appname>/` prefix."""
+        return await self._send(
+            'POST', self._build_raw_url(path), self._headers(token_appname), json
+        )
+
+    async def delete_path(self, path: str, *, token_appname: str) -> dict[str, Any]:
+        """Perform a DELETE request against the raw `<path>`, with no `/app/<appname>/` prefix."""
+        return await self._send(
+            'DELETE', self._build_raw_url(path), self._headers(token_appname), None
+        )

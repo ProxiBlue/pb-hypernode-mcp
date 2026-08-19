@@ -2,13 +2,25 @@
 
 Lists active Brancher nodes for a Hypernode app.
 
-Assumption on API response shape (not yet verified against the real
-Hypernode API): `GET /app/<appname>/brancher/` returns a JSON body shaped
-like `{"nodes": [{"name": ..., "host": ..., "minutes": ...}, ...]}` — a dict
-with a top-level `nodes` list of node dicts, each carrying at least `name`,
-`host`, and `minutes` keys. `minutes` is wall-clock uptime since node
-creation, not idle-aware. If the real API instead returns a bare JSON list,
-or nests the list under a different key, this will need adjusting.
+VERIFIED (2026-08-19) against a live curl on a real Hypernode account's
+Brancher list endpoint (`GET /v2/app/<appname>/brancher/`, the deprecated but
+still-working endpoint — same response shape as the real, non-deprecated
+`GET /v2/brancher/app/<appname>/`, confirmed via the official
+`ByteInternet/hypernode-api-python` client's `client.py`
+(`HYPERNODE_API_BRANCHER_APP_ENDPOINT = "/v2/brancher/app/{}/"`)):
+
+```json
+{"monthly_total_time": 332, "branchers": [
+    {"id": 33358, "name": "ppsdev-ephp8b5c2", "cost": 6,
+     "created": "2026-08-19T12:27:14.791544Z", "ip": null, "end_time": null,
+     "elapsed_time": 332, "labels": {"test1": null}}
+]}
+```
+
+The node list is under a top-level `branchers` key, not `nodes`. Each entry
+has no `host` field (derived here as `f"{name}.hypernode.io"`) and no
+`minutes` field (derived here as `elapsed_time // 60` — `elapsed_time` is
+wall-clock **seconds** since creation, not minutes).
 """
 
 from __future__ import annotations
@@ -36,14 +48,14 @@ async def list_brancher_nodes(
     `appname` has no configured token — there is nothing to authenticate
     the request with.
     """
-    response = await client.get(appname, 'brancher/')
-    nodes = response.get('nodes', [])
+    response = await client.get_path(f'brancher/app/{appname}/', token_appname=appname)
+    nodes = response.get('branchers', [])
 
     return [
         {
             'name': node['name'],
-            'host': node['host'],
-            'minutes': node['minutes'],
+            'host': f'{node["name"]}.hypernode.io',
+            'minutes': node['elapsed_time'] // 60,
         }
         for node in nodes
     ]

@@ -28,8 +28,7 @@ class FakeApiClient:
     ) -> dict[str, Any]:
         return {
             'product': {'code': 'FALCON_S_202603DEV'},
-            'ip_address': '203.0.113.10',
-            'nodes': [{'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 5}],
+            'ip': '203.0.113.10',
         }
 
     async def post(
@@ -40,11 +39,28 @@ class FakeApiClient:
         json: dict[str, Any] | None = None,
         token_appname: str | None = None,
     ) -> dict[str, Any]:
-        return {'appname': 'myapp-eph1'}
+        return {'name': 'myapp-eph1'}
 
     async def delete(
         self, appname: str, path: str, *, token_appname: str | None = None
     ) -> dict[str, Any]:
+        return {}
+
+    async def get_path(self, path: str, *, token_appname: str) -> dict[str, Any]:
+        return {
+            'branchers': [{'name': 'myapp-eph1', 'elapsed_time': 300}],
+        }
+
+    async def post_path(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        token_appname: str,
+    ) -> dict[str, Any]:
+        return {'name': 'myapp-eph1'}
+
+    async def delete_path(self, path: str, *, token_appname: str) -> dict[str, Any]:
         return {}
 
 

@@ -10,9 +10,9 @@ from pb_hypernode_mcp.config import Settings
 from pb_hypernode_mcp.tools.brancher_list import list_brancher_nodes
 
 NODES_RESPONSE = {
-    'nodes': [
-        {'name': 'myapp-eph1', 'host': 'myapp-eph1.hypernode.io', 'minutes': 12},
-        {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300},
+    'branchers': [
+        {'name': 'myapp-eph1', 'elapsed_time': 720},
+        {'name': 'myapp-eph2', 'elapsed_time': 18000},
     ],
 }
 
@@ -70,8 +70,8 @@ async def test_it_deletes_a_flagged_node_only_after_confirmation() -> None:
         return httpx.Response(
             200,
             json={
-                'nodes': [
-                    {'name': 'myapp-eph2', 'host': 'myapp-eph2.hypernode.io', 'minutes': 300},
+                'branchers': [
+                    {'name': 'myapp-eph2', 'elapsed_time': 18000},
                 ],
             },
         )

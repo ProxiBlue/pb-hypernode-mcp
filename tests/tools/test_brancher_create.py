@@ -37,7 +37,7 @@ async def test_it_creates_a_brancher_node_and_returns_the_node_name() -> None:
                 json={'product': {'code': 'FALCON_S_202603DEV'}},
             )
 
-        return httpx.Response(201, json={'appname': 'myapp-eph123456'})
+        return httpx.Response(201, json={'name': 'myapp-eph123456'})
 
     client = make_client(handler)
 
@@ -48,6 +48,69 @@ async def test_it_creates_a_brancher_node_and_returns_the_node_name() -> None:
     )
 
     assert result['node_name'] == 'myapp-eph123456'
+
+
+async def test_it_creates_a_brancher_node_via_the_non_deprecated_brancher_app_appname_endpoint() -> (  # noqa: E501
+    None
+):
+    """Real create endpoint is `POST /v2/brancher/app/<appname>/`
+    (`HYPERNODE_API_BRANCHER_APP_ENDPOINT` in the official
+    `ByteInternet/hypernode-api-python` client's `client.py`), not the deprecated
+    `POST /v2/app/<appname>/brancher/`.
+    """
+    captured_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'GET':
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
+
+        captured_urls.append(str(request.url))
+
+        return httpx.Response(201, json={'name': 'myapp-eph123456'})
+
+    client = make_client(handler)
+
+    await create_brancher_node(
+        client,
+        appname='myapp',
+        labels=['ticket-123'],
+    )
+
+    assert captured_urls == ['https://api.hypernode.com/v2/brancher/app/myapp/']
+
+
+async def test_it_reads_the_node_name_from_the_name_field_in_the_create_response_not_appname() -> (
+    None
+):
+    """Official client library's own create-response docstring example uses `name`, not
+    `appname` — this codebase's earlier `response.get('appname')` guess is why a real
+    spin-up got `node_name: None` for a node that was actually created fine."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'GET':
+            return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
+
+        return httpx.Response(
+            201,
+            json={
+                'name': 'yourappname-ephoj82yb',
+                'appname': 'this-key-must-be-ignored',
+                'parent': 'yourappname',
+                'type': 'brancher',
+                'product': 'FALCON_M_202203',
+                'domainname': 'yourappname-ephoj82yb.hypernode.io',
+            },
+        )
+
+    client = make_client(handler)
+
+    result = await create_brancher_node(
+        client,
+        appname='myapp',
+        labels=['ticket-123'],
+    )
+
+    assert result['node_name'] == 'yourappname-ephoj82yb'
 
 
 async def test_it_rejects_the_call_when_no_label_is_provided() -> None:
@@ -88,7 +151,7 @@ async def test_it_accepts_a_falcon_family_plan_code_as_falcons_eligible_substrin
             # exact-value comparison against a single known plan string.
             return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
 
-        return httpx.Response(201, json={'appname': 'myapp-eph123456'})
+        return httpx.Response(201, json={'name': 'myapp-eph123456'})
 
     client = make_client(handler)
 
@@ -142,7 +205,7 @@ async def test_it_returns_none_for_minutes_remaining_since_no_verified_api_sourc
         if request.method == 'GET':
             return httpx.Response(200, json={'product': {'code': 'FALCON_S_202603DEV'}})
 
-        return httpx.Response(201, json={'appname': 'myapp-eph999'})
+        return httpx.Response(201, json={'name': 'myapp-eph999'})
 
     client = make_client(handler)
 
@@ -164,7 +227,7 @@ async def test_it_passes_clear_services_through_to_the_api_request_when_provided
 
         captured_bodies.append(request.content)
 
-        return httpx.Response(201, json={'appname': 'myapp-eph1'})
+        return httpx.Response(201, json={'name': 'myapp-eph1'})
 
     client = make_client(handler)
 
@@ -189,7 +252,7 @@ async def test_it_defaults_clear_services_to_cron_when_not_provided() -> None:
 
         captured_bodies.append(request.content)
 
-        return httpx.Response(201, json={'appname': 'myapp-eph1'})
+        return httpx.Response(201, json={'name': 'myapp-eph1'})
 
     client = make_client(handler)
 

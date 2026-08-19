@@ -74,10 +74,14 @@ async def create_brancher_node(
         ),
     }
 
-    response = await client.post(appname, 'brancher/', json=body)
+    response = await client.post_path(f'brancher/app/{appname}/', json=body, token_appname=appname)
 
     return {
-        'node_name': response.get('appname'),
+        # VERIFIED (2026-08-19) against the official `ByteInternet/hypernode-api-python`
+        # client's own create-response docstring example: the node-name field is
+        # `name`, not `appname`. Reading `appname` here was the root cause of a real
+        # spin-up getting `node_name: None` for a node that was actually created fine.
+        'node_name': response.get('name'),
         # No verified API source for a "minutes remaining" figure -- see the
         # module-level comment above. Always None until one is found.
         'minutes_remaining': None,
