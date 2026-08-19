@@ -19,6 +19,13 @@ from pb_hypernode_mcp.tools._guards import validate_eph_node_name
 
 SSH_PORT = 22
 
+# Same hardening rationale as brancher_exec.py's ssh call: BatchMode=yes
+# stops a host-key prompt from blocking on stdin (which, under the MCP
+# server's stdio transport, never reaches EOF), and StrictHostKeyChecking=
+# accept-new auto-trusts a first-seen node without ignoring a changed key on
+# a reused hostname.
+SSH_CONNECT_TIMEOUT_SECONDS = 10
+
 # Signature-compatible with `asyncio.create_subprocess_exec`: accepts the
 # program + args plus `stdout`/`stderr` kwargs, returns an awaited process
 # object exposing `.returncode` and an async `.communicate()`.
@@ -51,18 +58,23 @@ async def put_files(
     # `remote_path` is defense-in-depth on top of that, in case `--rsh`
     # behaviour or `--protect-args` semantics ever change.
     destination = f'{node_name}@{node_name}.hypernode.io:{shlex.quote(remote_path)}'
+    ssh_command = (
+        f'ssh -p {port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new '
+        f'-o ConnectTimeout={SSH_CONNECT_TIMEOUT_SECONDS}'
+    )
     command = [
         'rsync',
         '-az',
         '--protect-args',
         '--rsh',
-        f'ssh -p {port}',
+        ssh_command,
         local_path,
         destination,
     ]
 
     process = await runner(
         *command,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shlex
 from unittest.mock import AsyncMock
 
@@ -125,6 +126,29 @@ async def test_it_passes_protect_args_to_rsync_so_the_remote_shell_never_re_pars
     assert runner.await_args is not None
     args = runner.await_args.args
     assert '--protect-args' in args
+
+
+async def test_it_hardens_the_rsh_ssh_invocation_against_a_hanging_host_key_prompt() -> None:
+    runner = make_runner(FakeProcess(returncode=0, stdout=b'sent 1 file'))
+
+    await put_files(
+        'pps-eph123456',
+        '/local/file.txt',
+        '/remote/file.txt',
+        run_subprocess=runner,
+    )
+
+    runner.assert_awaited_once()
+    assert runner.await_args is not None
+    args = runner.await_args.args
+    rsh_index = args.index('--rsh') + 1
+    rsh_value = args[rsh_index]
+    assert 'BatchMode=yes' in rsh_value
+    assert 'StrictHostKeyChecking=accept-new' in rsh_value
+    assert 'ConnectTimeout=' in rsh_value
+
+    kwargs = runner.await_args.kwargs
+    assert kwargs['stdin'] == asyncio.subprocess.DEVNULL
 
 
 async def test_it_propagates_sync_failures_as_a_clear_error() -> None:

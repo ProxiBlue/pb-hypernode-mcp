@@ -23,6 +23,10 @@ DEFAULT_COMMAND_TIMEOUT_SECONDS = 30.0
 
 SSH_PORT = 22
 
+# Connect-phase timeout distinct from the overall command timeout below — caps
+# how long the TCP+SSH handshake itself may take before ssh gives up.
+SSH_CONNECT_TIMEOUT_SECONDS = 10
+
 # ssh(1) reserves exit code 255 for its own connection/authentication
 # failures, distinct from the remote command's exit code (0-254). Surface it
 # as a clear `SshConnectionError` instead of a normal `exit_code: 255` result.
@@ -54,10 +58,22 @@ async def exec_command(
     host = f'{node_name}.hypernode.io'
     user = node_name
 
+    # BatchMode=yes + stdin=DEVNULL: without these, a host-key prompt on a
+    # never-before-seen node would block reading from this process's stdin —
+    # which, under the MCP server's stdio transport, is the live JSON-RPC
+    # pipe and never reaches EOF, so the prompt would hang until the
+    # asyncio.wait_for timeout below kills it. StrictHostKeyChecking=accept-new
+    # auto-trusts a first-seen host key (expected for a freshly created
+    # Brancher node) without silently ignoring a *changed* key on a reused
+    # hostname.
     process = await asyncio.create_subprocess_exec(
         'ssh',
+        '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', f'ConnectTimeout={SSH_CONNECT_TIMEOUT_SECONDS}',
         f'{user}@{host}',
         command,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
