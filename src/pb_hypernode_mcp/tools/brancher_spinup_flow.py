@@ -107,6 +107,24 @@ _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 DEFAULT_ADMIN_PATH_RESOLVE_RETRIES = 10
 DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS = 10.0
 
+# VERIFIED (2026-08-20) against a real Brancher node (ppsdev-ephy4kowy), with
+# hard filesystem-timestamp evidence: `app/etc/env.php` (which carries the
+# real custom admin `frontName`) was overwritten by Hypernode's own
+# asynchronous clone/deploy process (an ansible-driven "brancher install
+# hook") roughly 21s AFTER SSH already reported reachable. This is NOT a
+# Magento config-cache race -- it is Hypernode's own clone finishing its
+# file sync after SSH access already exists. The v0.4.4 "confirm two
+# consecutive matching reads" fix was actively counterproductive against
+# this shape of failure: the pre-sync env.php parses just as cleanly as the
+# post-sync one, so two consecutive EARLY reads agree with each other on the
+# WRONG value and get trusted immediately, well before the real file lands
+# -- even though the overall retry budget was long enough to reach the
+# correct value eventually. A fixed settle delay BEFORE the first attempt
+# directly targets the evidenced cause; the retry loop below (including its
+# two-consecutive-matching-reads check) remains as defense-in-depth against
+# any OTHER residual raciness on top of it.
+DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS = 30.0
+
 
 class BrancherSpinupError(Exception):
     """Base class for failures during the create -> wait -> sanitize spin-up flow."""
@@ -261,6 +279,7 @@ async def _resolve_admin_path(
     timeout: float,
     retries: int,
     retry_delay: float,
+    settle_delay: float,
     sleep: SleepFn,
 ) -> str:
     """Best-effort: parse the app's actual admin path via `bin/magento info:adminuri`.
@@ -270,7 +289,7 @@ async def _resolve_admin_path(
     only means a slightly-off `admin_url` in the report, never a withheld
     access URL or an unsanitized node.
 
-    VERIFIED (2026-08-20) against a real Brancher node, THREE TIMES, each a
+    VERIFIED (2026-08-20) against a real Brancher node, FOUR TIMES, each a
     genuinely distinct failure class:
     1. Gave up to `DEFAULT_ADMIN_PATH` on the FIRST failure with no retry.
        Fixed by retrying on a raised exception.
@@ -282,18 +301,27 @@ async def _resolve_admin_path(
     3. STILL not enough -- a run reported `/admin` when the real path was
        `/admin-uptactics`, even though `exec_command` returned a clean
        `exit_code=0` with genuinely parseable stdout, AND the exact same
-       command gave the correct answer when re-run moments later via this
-       plugin's own `brancher_exec` tool. A single successful PARSE is not
-       proof of a CORRECT value -- Magento's own config cache can still be
-       mid-convergence right after `disable_custom_admin_url`'s UPSERT and
-       the trailing `cache:flush`, so one read can catch a stale value that
-       nonetheless parses cleanly. Now requires the SAME value on two
-       CONSECUTIVE successful reads before trusting it (any exception, non-
-       zero exit_code, unparseable stdout, or a value that DIFFERS from the
-       previous read resets the confirmation streak back to zero). Costs a
-       minimum of one extra `retry_delay` even in the best case -- an
-       acceptable trade against silently reporting a wrong URL a third time.
+       command gave the correct answer when re-run moments later. Fixed
+       (v0.4.4) by requiring the SAME value on two CONSECUTIVE successful
+       reads before trusting it.
+    4. v0.4.4's fix was ITSELF insufficient, on a DIFFERENT live node
+       (ppsdev-ephy4kowy) -- confirmed via hard filesystem-timestamp
+       evidence: `app/etc/env.php` (which carries the real admin
+       `frontName`) was overwritten by Hypernode's own asynchronous
+       clone/deploy process (an ansible-driven "brancher install hook")
+       roughly 21s AFTER SSH already reported reachable. This is Hypernode's
+       OWN clone still finishing its file sync, not a Magento cache race --
+       the pre-sync env.php parses just as cleanly as the post-sync one, so
+       two consecutive EARLY reads happily agreed with each other on the
+       WRONG value and got trusted immediately, well before the real file
+       landed, even though the overall retry budget was long enough to
+       reach the correct value eventually. Fixed by sleeping `settle_delay`
+       BEFORE the first attempt, giving Hypernode's file sync a head start
+       -- the confirm-twice check from point 3 stays in place on top of it,
+       as defense-in-depth against any OTHER residual raciness.
     """
+    await sleep(settle_delay)
+
     previous_value: str | None = None
 
     for attempt in range(retries + 1):
@@ -340,6 +368,7 @@ async def spinup_sanitized_brancher_node(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
+    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -437,6 +466,7 @@ async def spinup_sanitized_brancher_node(
         timeout=sanitization_command_timeout,
         retries=admin_path_resolve_retries,
         retry_delay=admin_path_resolve_retry_delay_seconds,
+        settle_delay=admin_path_resolve_settle_seconds,
         sleep=resolved_sleep,
     )
 
@@ -482,6 +512,7 @@ def register(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
+    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -530,6 +561,7 @@ def register(
             sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
             admin_path_resolve_retries=admin_path_resolve_retries,
             admin_path_resolve_retry_delay_seconds=admin_path_resolve_retry_delay_seconds,
+            admin_path_resolve_settle_seconds=admin_path_resolve_settle_seconds,
             generate_password=generate_password,
             sleep=sleep,
             clock=clock,
