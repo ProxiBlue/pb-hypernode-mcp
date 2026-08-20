@@ -318,6 +318,42 @@ async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
 
 
+class FlakyAdminUriExec:
+    """Fake `exec_command` that fails `bin/magento info:adminuri` a fixed
+    number of times with a connection-level error before succeeding with a
+    real custom admin path -- verified live 2026-08-20: a single transient
+    blip here used to silently produce a wrong `admin_url`."""
+
+    def __init__(self, *, fail_count: int) -> None:
+        self._fail_count = fail_count
+        self._attempts = 0
+
+    async def __call__(self, node_name: str, command: str, **_: Any) -> dict[str, Any]:
+        if command == 'bin/magento info:adminuri':
+            if self._attempts < self._fail_count:
+                self._attempts += 1
+                raise ConnectionError('ssh: Could not resolve hostname ... No address associated')
+
+            return {'stdout': 'Admin URI: /admin-uptactics\n', 'stderr': '', 'exit_code': 0}
+
+        return {'stdout': '', 'stderr': '', 'exit_code': 0}
+
+
+async def test_it_retries_the_admin_path_resolve_call_on_a_transient_connection_failure() -> None:
+    exec_fn = FlakyAdminUriExec(fail_count=2)
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        sanitization_retry_delay_seconds=0.0,
+    )
+
+    assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-uptactics'
+
+
 class FlakyThenSucceedsExec:
     """Fake `exec_command` that raises a connection-level error on the first
     `fail_count` calls to ONE specific command, then succeeds -- simulates a

@@ -223,16 +223,39 @@ async def _exec_with_retry(
     raise AssertionError('unreachable')  # loop always returns or raises above
 
 
-async def _resolve_admin_path(node_name: str, *, exec_command: ExecCommandFn) -> str:
+async def _resolve_admin_path(
+    node_name: str,
+    *,
+    exec_command: ExecCommandFn,
+    retries: int,
+    retry_delay: float,
+    sleep: SleepFn,
+) -> str:
     """Best-effort: parse the app's actual admin path via `bin/magento info:adminuri`.
 
     Purely informational (never blocks or fails spin-up) — this runs after
     sanitization has already fully succeeded, so a wrong/missing admin path
     only means a slightly-off `admin_url` in the report, never a withheld
     access URL or an unsanitized node.
+
+    VERIFIED (2026-08-20) against a real Brancher node: this used to give up
+    to `DEFAULT_ADMIN_PATH` on the FIRST exception with no retry at all --
+    a single transient connectivity blip (the same class this whole flow
+    already retries for sanitization commands) silently produced a wrong,
+    misleading `admin_url` (reported `/admin`, the real path was the site's
+    actual custom `/admin-uptactics`) instead of the real one. Now shares
+    the same bounded retry as the sanitization loop.
     """
     try:
-        result = await exec_command(node_name, ADMIN_URI_COMMAND)
+        result = await _exec_with_retry(
+            node_name,
+            ADMIN_URI_COMMAND,
+            exec_command=exec_command,
+            timeout=DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
+            retries=retries,
+            retry_delay=retry_delay,
+            sleep=sleep,
+        )
     except Exception:
         return DEFAULT_ADMIN_PATH
 
@@ -325,7 +348,13 @@ async def spinup_sanitized_brancher_node(
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
 
-    admin_path = await _resolve_admin_path(node_name, exec_command=exec_command)
+    admin_path = await _resolve_admin_path(
+        node_name,
+        exec_command=exec_command,
+        retries=sanitization_command_retries,
+        retry_delay=sanitization_retry_delay_seconds,
+        sleep=sleep,
+    )
 
     return {
         'node_name': node_name,
