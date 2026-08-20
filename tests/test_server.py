@@ -169,6 +169,19 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
         fake_create_subprocess_exec,
     )
 
+    async def fake_sleep(seconds: float) -> None:
+        # `_resolve_admin_path` now requires two consecutive matching reads
+        # before trusting a value (guards against a transient config-cache
+        # race) -- even the happy path needs one retry_delay wait, which
+        # would otherwise be a REAL asyncio.sleep() in tests that don't
+        # inject a fake `sleep`.
+        return None
+
+    monkeypatch.setattr(
+        'pb_hypernode_mcp.tools.brancher_spinup_flow.asyncio.sleep',
+        fake_sleep,
+    )
+
     server = create_server()
 
     tools = await server.list_tools()
@@ -223,6 +236,19 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
     monkeypatch.setattr(
         'pb_hypernode_mcp.tools.brancher_exec.asyncio.create_subprocess_exec',
         fake_create_subprocess_exec,
+    )
+
+    async def fake_sleep(seconds: float) -> None:
+        # `_resolve_admin_path` now requires two consecutive matching reads
+        # before trusting a value (guards against a transient config-cache
+        # race) -- even the happy path needs one retry_delay wait, which
+        # would otherwise be a REAL asyncio.sleep() in tests that don't
+        # inject a fake `sleep`.
+        return None
+
+    monkeypatch.setattr(
+        'pb_hypernode_mcp.tools.brancher_spinup_flow.asyncio.sleep',
+        fake_sleep,
     )
 
     server = create_server()
@@ -285,6 +311,19 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
     monkeypatch.setattr(
         'pb_hypernode_mcp.tools.brancher_exec.asyncio.create_subprocess_exec',
         fake_create_subprocess_exec,
+    )
+
+    async def fake_sleep(seconds: float) -> None:
+        # `_resolve_admin_path` now requires two consecutive matching reads
+        # before trusting a value (guards against a transient config-cache
+        # race) -- even the happy path needs one retry_delay wait, which
+        # would otherwise be a REAL asyncio.sleep() in tests that don't
+        # inject a fake `sleep`.
+        return None
+
+    monkeypatch.setattr(
+        'pb_hypernode_mcp.tools.brancher_spinup_flow.asyncio.sleep',
+        fake_sleep,
     )
 
     server = create_server()
@@ -410,6 +449,19 @@ async def test_it_exposes_brancher_exec_as_a_callable_mcp_tool_on_the_server(
         fake_create_subprocess_exec,
     )
 
+    async def fake_sleep(seconds: float) -> None:
+        # `_resolve_admin_path` now requires two consecutive matching reads
+        # before trusting a value (guards against a transient config-cache
+        # race) -- even the happy path needs one retry_delay wait, which
+        # would otherwise be a REAL asyncio.sleep() in tests that don't
+        # inject a fake `sleep`.
+        return None
+
+    monkeypatch.setattr(
+        'pb_hypernode_mcp.tools.brancher_spinup_flow.asyncio.sleep',
+        fake_sleep,
+    )
+
     server = create_server()
 
     tools = await server.list_tools()
@@ -474,6 +526,19 @@ async def test_it_constructs_a_single_shared_hypernode_api_client_reused_across_
     monkeypatch.setattr(
         'pb_hypernode_mcp.tools.brancher_exec.asyncio.create_subprocess_exec',
         fake_create_subprocess_exec,
+    )
+
+    async def fake_sleep(seconds: float) -> None:
+        # `_resolve_admin_path` now requires two consecutive matching reads
+        # before trusting a value (guards against a transient config-cache
+        # race) -- even the happy path needs one retry_delay wait, which
+        # would otherwise be a REAL asyncio.sleep() in tests that don't
+        # inject a fake `sleep`.
+        return None
+
+    monkeypatch.setattr(
+        'pb_hypernode_mcp.tools.brancher_spinup_flow.asyncio.sleep',
+        fake_sleep,
     )
 
     server = create_server()

@@ -270,21 +270,32 @@ async def _resolve_admin_path(
     only means a slightly-off `admin_url` in the report, never a withheld
     access URL or an unsanitized node.
 
-    VERIFIED (2026-08-20) against a real Brancher node, TWICE: this used to
-    give up to `DEFAULT_ADMIN_PATH` on the FIRST failure with no retry at
-    all. The first fix (retry on a raised exception, matching the
-    sanitization loop's retry class) wasn't enough on its own -- a second
-    live run still reported `/admin` when the real path was
-    `/admin-uptactics`, even though the exact same `bin/magento
-    info:adminuri` command worked immediately when run by hand moments
-    later. Root cause: `_exec_with_retry` only retries on a raised
-    exception -- a command that RAN and returned a non-zero exit code (or
-    empty/unparseable stdout, both plausible right after the heavy
-    sanitization/cache-flush sequence this runs immediately after) was
-    never retried at all, just silently parsed-and-fell-back once. This
-    now retries on ANY of the three failure shapes (exception, non-zero
-    exit_code, or unparseable stdout), not just exceptions.
+    VERIFIED (2026-08-20) against a real Brancher node, THREE TIMES, each a
+    genuinely distinct failure class:
+    1. Gave up to `DEFAULT_ADMIN_PATH` on the FIRST failure with no retry.
+       Fixed by retrying on a raised exception.
+    2. That still wasn't enough -- a command that RAN and returned a
+       non-zero exit code, or empty/unparseable stdout (both plausible
+       right after the heavy sanitization/cache-flush sequence this runs
+       immediately after), was never retried at all. Fixed by retrying on
+       ANY of exception / non-zero exit_code / unparseable stdout.
+    3. STILL not enough -- a run reported `/admin` when the real path was
+       `/admin-uptactics`, even though `exec_command` returned a clean
+       `exit_code=0` with genuinely parseable stdout, AND the exact same
+       command gave the correct answer when re-run moments later via this
+       plugin's own `brancher_exec` tool. A single successful PARSE is not
+       proof of a CORRECT value -- Magento's own config cache can still be
+       mid-convergence right after `disable_custom_admin_url`'s UPSERT and
+       the trailing `cache:flush`, so one read can catch a stale value that
+       nonetheless parses cleanly. Now requires the SAME value on two
+       CONSECUTIVE successful reads before trusting it (any exception, non-
+       zero exit_code, unparseable stdout, or a value that DIFFERS from the
+       previous read resets the confirmation streak back to zero). Costs a
+       minimum of one extra `retry_delay` even in the best case -- an
+       acceptable trade against silently reporting a wrong URL a third time.
     """
+    previous_value: str | None = None
+
     for attempt in range(retries + 1):
         try:
             result = await exec_command(
@@ -295,15 +306,22 @@ async def _resolve_admin_path(
         except Exception:
             result = None
 
+        match = None
         if result is not None and result.get('exit_code') == 0:
             match = _ADMIN_PATH_PATTERN.search(result.get('stdout', ''))
-            if match:
-                return match.group(1)
+
+        if match is not None and match.group(1) == previous_value:
+            return match.group(1)
+
+        previous_value = match.group(1) if match is not None else None
 
         if attempt < retries:
             await sleep(retry_delay)
 
-    return DEFAULT_ADMIN_PATH
+    # Ran out of retries without two consecutive agreeing reads -- a single
+    # unconfirmed real value is still a better bet than the hardcoded
+    # default, so prefer it if we ever saw one at all.
+    return previous_value or DEFAULT_ADMIN_PATH
 
 
 async def spinup_sanitized_brancher_node(
@@ -323,7 +341,7 @@ async def spinup_sanitized_brancher_node(
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
-    sleep: SleepFn = asyncio.sleep,
+    sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
 ) -> dict[str, Any]:
     """Create a Brancher node, wait for it, sanitize it, and only then report it ready.
@@ -335,7 +353,17 @@ async def spinup_sanitized_brancher_node(
     phases together never exceed that one configured ceiling. Both
     durations are surfaced in the returned dict on success so a caller can
     report exactly where the time went, not just a bare "ready".
+
+    `sleep` defaults to `None`, resolved to `asyncio.sleep` HERE in the
+    function body rather than as a `= asyncio.sleep` parameter default.
+    Parameter defaults are bound once, at function-definition time (module
+    import) -- a test monkeypatching `asyncio.sleep` after that point would
+    silently have no effect, since the frozen default still references the
+    original function object. Resolving inside the body instead makes every
+    call look the reference up fresh, so monkeypatching actually works.
     """
+    resolved_sleep: SleepFn = sleep if sleep is not None else asyncio.sleep
+
     created = await create_brancher_node(
         client,
         appname,
@@ -350,7 +378,7 @@ async def spinup_sanitized_brancher_node(
         client=client,
         poll_interval=reachability_poll_interval,
         timeout=reachability_timeout,
-        sleep=sleep,
+        sleep=resolved_sleep,
         clock=clock,
     )
 
@@ -363,7 +391,7 @@ async def spinup_sanitized_brancher_node(
         probe_command=ready_probe_command,
         poll_interval=reachability_poll_interval,
         timeout=remaining_timeout,
-        sleep=sleep,
+        sleep=resolved_sleep,
         clock=clock,
     )
     ssh_reachable_after_seconds = clock() - ssh_wait_start
@@ -398,7 +426,7 @@ async def spinup_sanitized_brancher_node(
             timeout=sanitization_command_timeout,
             retries=sanitization_command_retries,
             retry_delay=sanitization_retry_delay_seconds,
-            sleep=sleep,
+            sleep=resolved_sleep,
         )
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
@@ -409,7 +437,7 @@ async def spinup_sanitized_brancher_node(
         timeout=sanitization_command_timeout,
         retries=admin_path_resolve_retries,
         retry_delay=admin_path_resolve_retry_delay_seconds,
-        sleep=sleep,
+        sleep=resolved_sleep,
     )
 
     return {
@@ -455,7 +483,7 @@ def register(
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
-    sleep: SleepFn = asyncio.sleep,
+    sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
 ) -> None:
     """Register the `brancher_create` tool on `server`.
