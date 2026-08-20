@@ -242,13 +242,34 @@ def generate_url_setup_commands(
 
     # Same fix, different scope TYPE (`stores`, not `websites`) -- env.php
     # can carry an independent stale override for the admin store scope.
+    #
+    # VERIFIED (2026-08-20) against a real Brancher node: `base_url` alone
+    # was NOT enough here either -- the admin login rendered completely
+    # unstyled. Unlike the default/website scopes (where base_link_url/
+    # base_static_url/base_media_url are `{{secure_base_url}}...`
+    # TEMPLATES that auto-resolve once base_url is correct), this
+    # account's `stores.admin` scope had all three MATERIALIZED as literal
+    # hardcoded URLs pointing at the old domain -- so each needs its own
+    # explicit override; fixing base_url alone left the template-free
+    # siblings stale.
+    admin_store_scope_web_paths = (
+        ('unsecure', 'base_url', base_url),
+        ('secure', 'base_url', base_url),
+        ('unsecure', 'base_link_url', base_url),
+        ('secure', 'base_link_url', base_url),
+        ('unsecure', 'base_static_url', f'{base_url}static/'),
+        ('secure', 'base_static_url', f'{base_url}static/'),
+        ('unsecure', 'base_media_url', f'{base_url}media/'),
+        ('secure', 'base_media_url', f'{base_url}media/'),
+    )
     for scope_code in config.base_url_admin_store_scope_codes:
-        for path in (BASE_URL_UNSECURE_PATH, BASE_URL_SECURE_PATH):
+        for area, suffix, value in admin_store_scope_web_paths:
             commands.append(
                 _with_magento_root(
                     config,
                     f'{CONFIG_SET_COMMAND} --lock-env --scope=stores '
-                    f'--scope-code={shlex.quote(scope_code)} {path} {shlex.quote(base_url)}',
+                    f'--scope-code={shlex.quote(scope_code)} web/{area}/{suffix} '
+                    f'{shlex.quote(value)}',
                 )
             )
 

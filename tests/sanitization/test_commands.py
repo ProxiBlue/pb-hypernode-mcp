@@ -341,6 +341,36 @@ def test_it_also_overrides_base_url_at_each_configured_admin_store_scope() -> No
     )
 
 
+def test_it_also_overrides_base_link_static_and_media_urls_at_the_admin_store_scope() -> None:
+    """VERIFIED (2026-08-20) against a real Brancher node: overriding
+    base_url alone was NOT enough -- the admin login rendered completely
+    unstyled. Unlike the default/website scopes (where these are
+    `{{secure_base_url}}...` TEMPLATES that auto-resolve), this account's
+    `stores.admin` scope had base_link_url/base_static_url/base_media_url
+    MATERIALIZED as literal hardcoded URLs, so each needs its own
+    explicit override."""
+    config = _minimal_config(base_url_admin_store_scope_codes=('admin',))
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    for area in ('unsecure', 'secure'):
+        assert (
+            'cd current_root && bin/magento config:set --lock-env --scope=stores '
+            f'--scope-code=admin web/{area}/base_link_url '
+            'https://myapp-eph123456.hypernode.io/' in commands
+        )
+        assert (
+            'cd current_root && bin/magento config:set --lock-env --scope=stores '
+            f'--scope-code=admin web/{area}/base_static_url '
+            'https://myapp-eph123456.hypernode.io/static/' in commands
+        )
+        assert (
+            'cd current_root && bin/magento config:set --lock-env --scope=stores '
+            f'--scope-code=admin web/{area}/base_media_url '
+            'https://myapp-eph123456.hypernode.io/media/' in commands
+        )
+
+
 def test_it_skips_admin_store_scope_base_url_overrides_when_no_scope_codes_are_configured() -> (
     None
 ):

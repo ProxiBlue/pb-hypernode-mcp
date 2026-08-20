@@ -93,6 +93,20 @@ ADMIN_URI_COMMAND = 'bin/magento info:adminuri'
 DEFAULT_ADMIN_PATH = '/admin'
 _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 
+# VERIFIED (2026-08-20) against a real Brancher node, TWICE: the general
+# sanitization retry budget (3 attempts, 5s apart -- ~15-20s total) was
+# exhausted by this account's real connectivity flakiness on two SEPARATE
+# spin-ups, both times silently reporting the wrong fallback `/admin` path
+# instead of the real one (`/admin-uptactics`). This step runs LAST, after
+# every sanitization command has already succeeded, is purely informational
+# (never blocks spin-up either way), and the flakiness observed elsewhere
+# this session has lasted anywhere from seconds to multiple minutes -- so a
+# much more generous, DEDICATED budget costs little against the overall
+# ~20min spin-up ceiling and meaningfully raises the odds of getting the
+# real path instead of silently guessing.
+DEFAULT_ADMIN_PATH_RESOLVE_RETRIES = 10
+DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS = 10.0
+
 
 class BrancherSpinupError(Exception):
     """Base class for failures during the create -> wait -> sanitize spin-up flow."""
@@ -306,6 +320,8 @@ async def spinup_sanitized_brancher_node(
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
+    admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
+    admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
@@ -391,8 +407,8 @@ async def spinup_sanitized_brancher_node(
         node_name,
         exec_command=exec_command,
         timeout=sanitization_command_timeout,
-        retries=sanitization_command_retries,
-        retry_delay=sanitization_retry_delay_seconds,
+        retries=admin_path_resolve_retries,
+        retry_delay=admin_path_resolve_retry_delay_seconds,
         sleep=sleep,
     )
 
@@ -436,6 +452,8 @@ def register(
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
+    admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
+    admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
@@ -482,6 +500,8 @@ def register(
             sanitization_command_timeout=sanitization_command_timeout,
             sanitization_command_retries=sanitization_command_retries,
             sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
+            admin_path_resolve_retries=admin_path_resolve_retries,
+            admin_path_resolve_retry_delay_seconds=admin_path_resolve_retry_delay_seconds,
             generate_password=generate_password,
             sleep=sleep,
             clock=clock,

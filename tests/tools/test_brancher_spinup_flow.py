@@ -431,7 +431,7 @@ async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output
         labels=['ticket-123'],
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
-        sanitization_retry_delay_seconds=0.0,
+        admin_path_resolve_retry_delay_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
@@ -467,7 +467,32 @@ async def test_it_retries_the_admin_path_resolve_call_on_a_transient_connection_
         labels=['ticket-123'],
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
-        sanitization_retry_delay_seconds=0.0,
+        admin_path_resolve_retry_delay_seconds=0.0,
+    )
+
+    assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-uptactics'
+
+
+async def test_admin_path_resolve_retries_are_independent_of_sanitization_command_retries() -> (
+    None
+):
+    """VERIFIED (2026-08-20) against a real Brancher node, TWICE: the
+    general sanitization retry budget was exhausted by this account's real
+    connectivity flakiness, silently reporting the wrong fallback admin
+    path both times. admin_path_resolve_retries/_retry_delay_seconds are a
+    SEPARATE, more generous budget -- a low sanitization_command_retries
+    must not also cap how hard this step tries."""
+    exec_fn = FlakyAdminUriExec(fail_count=5)
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        sanitization_command_retries=1,  # would NOT survive 5 failures
+        admin_path_resolve_retries=5,  # but this budget does
+        admin_path_resolve_retry_delay_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-uptactics'
@@ -476,7 +501,13 @@ async def test_it_retries_the_admin_path_resolve_call_on_a_transient_connection_
 class FlakyThenSucceedsExec:
     """Fake `exec_command` that raises a connection-level error on the first
     `fail_count` calls to ONE specific command, then succeeds -- simulates a
-    transient DNS/SSH blip mid-sanitization, verified live 2026-08-20."""
+    transient DNS/SSH blip mid-sanitization, verified live 2026-08-20.
+
+    Returns a parseable `info:adminuri` response -- see `RecordingExec`'s
+    docstring for why (unparseable stdout is retry-worthy too, and a test
+    using this fake for an UNRELATED flaky command shouldn't also pay for
+    real admin-path-resolution retries).
+    """
 
     def __init__(self, *, flaky_command: str, fail_count: int) -> None:
         self._flaky_command = flaky_command
@@ -490,6 +521,9 @@ class FlakyThenSucceedsExec:
         if command == self._flaky_command and self._flaky_attempts < self._fail_count:
             self._flaky_attempts += 1
             raise ConnectionError('ssh: Could not resolve hostname ... No address associated')
+
+        if command == 'bin/magento info:adminuri':
+            return {'stdout': 'Admin URI: /admin\n', 'stderr': '', 'exit_code': 0}
 
         return {'stdout': '', 'stderr': '', 'exit_code': 0}
 
