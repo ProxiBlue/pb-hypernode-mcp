@@ -17,7 +17,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from pb_hypernode_mcp.tools._guards import validate_eph_node_name
+from pb_hypernode_mcp.tools._guards import HYPERNODE_SSH_USER, validate_eph_node_name
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30.0
 
@@ -56,7 +56,7 @@ async def exec_command(
     validate_eph_node_name(node_name)
 
     host = f'{node_name}.hypernode.io'
-    user = node_name
+    user = HYPERNODE_SSH_USER
 
     # BatchMode=yes + stdin=DEVNULL: without these, a host-key prompt on a
     # never-before-seen node would block reading from this process's stdin —

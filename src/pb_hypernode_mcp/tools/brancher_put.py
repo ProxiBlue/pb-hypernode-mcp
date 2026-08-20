@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from pb_hypernode_mcp.tools._guards import validate_eph_node_name
+from pb_hypernode_mcp.tools._guards import HYPERNODE_SSH_USER, validate_eph_node_name
 
 SSH_PORT = 22
 
@@ -57,7 +57,7 @@ async def put_files(
     # remote command line for a shell to parse; `shlex.quote()` on
     # `remote_path` is defense-in-depth on top of that, in case `--rsh`
     # behaviour or `--protect-args` semantics ever change.
-    destination = f'{node_name}@{node_name}.hypernode.io:{shlex.quote(remote_path)}'
+    destination = f'{HYPERNODE_SSH_USER}@{node_name}.hypernode.io:{shlex.quote(remote_path)}'
     ssh_command = (
         f'ssh -p {port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new '
         f'-o ConnectTimeout={SSH_CONNECT_TIMEOUT_SECONDS}'

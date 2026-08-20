@@ -13,7 +13,11 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.tools._guards import appname_from_node_name, validate_eph_node_name
+from pb_hypernode_mcp.tools._guards import (
+    HYPERNODE_SSH_USER,
+    appname_from_node_name,
+    validate_eph_node_name,
+)
 
 SSH_PORT = 22
 
@@ -41,7 +45,7 @@ async def get_ssh_info(client: HypernodeApiClient, node_name: str) -> dict[str, 
 
     return {
         'host': f'{node_name}.hypernode.io',
-        'user': node_name,
+        'user': HYPERNODE_SSH_USER,
         'port': SSH_PORT,
     }
 

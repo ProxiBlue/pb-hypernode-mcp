@@ -321,7 +321,7 @@ async def test_it_exposes_brancher_ssh_info_as_a_callable_mcp_tool_on_the_server
 
     assert result == {
         'host': 'myapp-eph1.hypernode.io',
-        'user': 'myapp-eph1',
+        'user': 'app',
         'port': 22,
     }
 

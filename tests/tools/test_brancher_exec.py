@@ -66,7 +66,7 @@ async def test_it_executes_a_command_on_a_valid_eph_node_and_returns_stdout_stde
         '-o', 'BatchMode=yes',
         '-o', 'StrictHostKeyChecking=accept-new',
         '-o', 'ConnectTimeout=10',
-        'pps-eph123456@pps-eph123456.hypernode.io',
+        'app@pps-eph123456.hypernode.io',
         'whoami',
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,

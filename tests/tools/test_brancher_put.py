@@ -41,7 +41,7 @@ async def test_it_syncs_a_local_file_to_the_target_path_on_a_valid_eph_node() ->
     args = runner.await_args.args
     assert args[0] == 'rsync'
     assert '/local/file.txt' in args
-    assert 'pps-eph123456@pps-eph123456.hypernode.io:/remote/file.txt' in args
+    assert 'app@pps-eph123456.hypernode.io:/remote/file.txt' in args
 
     assert result == {
         'node_name': 'pps-eph123456',
@@ -67,7 +67,7 @@ async def test_it_syncs_a_local_directory_recursively_to_a_valid_eph_node() -> N
     assert args[0] == 'rsync'
     assert '-az' in args
     assert '/local/app/' in args
-    assert 'pps-eph123456@pps-eph123456.hypernode.io:/remote/app/' in args
+    assert 'app@pps-eph123456.hypernode.io:/remote/app/' in args
     assert result['stdout'] == 'sent 4 files'
 
 
@@ -100,13 +100,13 @@ async def test_it_rejects_a_remote_path_containing_shell_metacharacters_from_rea
     args = runner.await_args.args
 
     expected_destination = (
-        f'pps-eph123456@pps-eph123456.hypernode.io:{shlex.quote(malicious_remote_path)}'
+        f'app@pps-eph123456.hypernode.io:{shlex.quote(malicious_remote_path)}'
     )
     assert expected_destination in args
 
     # The raw, unescaped metacharacters must never appear as their own argv
     # entry (i.e. never unescaped-concatenated into the destination string).
-    raw_destination = f'pps-eph123456@pps-eph123456.hypernode.io:{malicious_remote_path}'
+    raw_destination = f'app@pps-eph123456.hypernode.io:{malicious_remote_path}'
     assert raw_destination not in args
 
 

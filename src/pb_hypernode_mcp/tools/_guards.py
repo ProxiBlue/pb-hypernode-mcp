@@ -17,6 +17,13 @@ from __future__ import annotations
 
 import re
 
+# VERIFIED (2026-08-20) via a real interactive session: `ssh app@<node>.hypernode.io`
+# connects immediately. Hypernode's SSH login user is the fixed string `app`
+# on every Hypernode node (Brancher nodes included) — it is NOT the node's
+# own name. Every tool that opens an SSH/rsync connection to a Brancher node
+# must use this constant as the login user, never `node_name` itself.
+HYPERNODE_SSH_USER = 'app'
+
 _EPH_NODE_NAME_PATTERN = re.compile(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-eph[a-z0-9]+$')
 _APPNAME_FROM_NODE_NAME_PATTERN = re.compile(r'^(?P<appname>.+)-eph[a-z0-9]+$')
 

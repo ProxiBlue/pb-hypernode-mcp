@@ -29,7 +29,7 @@ async def test_it_returns_host_user_and_port_for_a_valid_brancher_node_name() ->
 
     assert result == {
         'host': 'pps-eph123456.hypernode.io',
-        'user': 'pps-eph123456',
+        'user': 'app',
         'port': 22,
     }
 
@@ -87,7 +87,7 @@ async def test_it_derives_the_correct_appname_from_a_node_name_to_resolve_the_ri
 
     assert result == {
         'host': 'pps-eph123456.hypernode.io',
-        'user': 'pps-eph123456',
+        'user': 'app',
         'port': 22,
     }
 
@@ -107,6 +107,6 @@ async def test_it_registers_the_brancher_ssh_info_tool_on_the_server_and_it_is_c
     )
     assert structured_result == {
         'host': 'pps-eph123456.hypernode.io',
-        'user': 'pps-eph123456',
+        'user': 'app',
         'port': 22,
     }
