@@ -164,6 +164,19 @@ class SanitizationConfig:
     # live API key is deliberately left alone.
     disable_custom_admin_url: bool = True
 
+    # A client's AI will make code edits over SSH against this node --
+    # `generate_git_baseline_commands` initializes (or reuses, if
+    # Hypernode Deploy already manages this app via git) a local repo,
+    # writes an `AI_INSTRUCTIONS.md` explaining the environment/branch
+    # purpose/limits, and commits a clean baseline snapshot on
+    # `git_baseline_branch` -- so every edit made afterward is diffable
+    # (`git diff`/`git log`) against a known-good starting point, giving
+    # the developer a real audit trail of exactly what the AI changed.
+    # `False` disables this entirely (e.g. a client that already has their
+    # own change-tracking mechanism).
+    git_baseline_enabled: bool = True
+    git_baseline_branch: str = 'brancher-preview'
+
 
 def validate_config(config: SanitizationConfig) -> None:
     """Raise `SanitizationConfigError` if `config` is missing required fields.

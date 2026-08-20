@@ -65,6 +65,15 @@ minutes. This skill does not delete the node itself — that is
    Both patterns can be combined in one preview loop (e.g. push a local
    patch, then also tweak a config value over `brancher_exec`).
 
+   The node already has a git baseline commit on the
+   `SanitizationConfig.git_baseline_branch` branch (default
+   `brancher-preview`, from spin-up's final sanitization step), with an
+   `AI_INSTRUCTIONS.md` at the app root explaining the environment. After
+   applying changes, `cd current_root && git add -A && git commit` (or just
+   `git diff`) against that baseline is how the developer reviews exactly
+   what changed during this preview session — don't create a different
+   branch, and don't push it anywhere.
+
 3. **Run the Magento build sequence.** After changes are applied, decide
    which build commands are actually needed — do not always run the full
    heavy sequence. The decision logic is a tested pure function,

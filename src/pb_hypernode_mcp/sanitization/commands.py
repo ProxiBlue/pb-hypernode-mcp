@@ -32,6 +32,14 @@ ADMIN_URL_USE_CUSTOM_PATH = 'admin/url/use_custom'
 # root-owned and has no self-service write path at all.
 NGINX_INCLUDE_DIR = '/data/web/nginx'
 
+AI_INSTRUCTIONS_FILENAME = 'AI_INSTRUCTIONS.md'
+GIT_BASELINE_COMMIT_MESSAGE = 'Baseline snapshot before AI-assisted edits'
+# Build artifacts, not source -- excluded from the baseline commit so `git
+# add -A` stays fast and the repo stays small, regardless of whether this
+# app's own `.gitignore` (if any) already covers them. Paths are relative to
+# `config.magento_root`, matching every other command in this module.
+GIT_EXCLUDED_PATHS = ('vendor', 'generated', 'var', 'pub/static', 'pub/media', 'node_modules')
+
 
 def _build_update_sql(sanitizer: PiiTableSanitizer) -> str:
     """Build a single anonymizing `UPDATE` statement, wrapped for shell execution.
@@ -336,6 +344,110 @@ def generate_admin_user_command(config: SanitizationConfig, password: str) -> st
     )
 
     return _with_magento_root(config, command)
+
+
+def _build_ai_instructions_content(hostname: str, config: SanitizationConfig) -> str:
+    """Build the `AI_INSTRUCTIONS.md` content committed alongside the git baseline.
+
+    Written for the AI making SSH-driven edits on this node, not the human
+    operator -- explains what this environment is, why the git branch
+    exists, and what NOT to do, so an AI unfamiliar with this specific
+    setup doesn't need to rediscover any of it by trial and error.
+    """
+    access_url = f'https://{hostname}/'
+    excluded = ', '.join(f'`{path}`' for path in GIT_EXCLUDED_PATHS)
+
+    return (
+        '# AI Instructions -- Brancher Preview Environment\n'
+        '\n'
+        '## What this is\n'
+        f'This is a disposable Hypernode Brancher preview node ({hostname}), cloned from '
+        'production and automatically sanitized (customer/sales PII anonymized, payment '
+        'gateways sandboxed where configured, admin credentials reset) before you were given '
+        'access. It is NOT production and NOT permanent.\n'
+        '\n'
+        '## Purpose of this git branch\n'
+        f'Every file in this checkout was committed to the `{config.git_baseline_branch}` '
+        'branch as a baseline snapshot immediately after sanitization completed. Make your '
+        'edits normally on this branch -- `git diff`/`git log` against this baseline is how '
+        'the developer will review exactly what you changed during this preview session. Do '
+        'not create or switch to a different branch for this work.\n'
+        '\n'
+        '## Limits\n'
+        '- This node is EPHEMERAL and will be deleted -- do not treat any state here as '
+        'persistent.\n'
+        '- Sales/customer data has already been anonymized -- do not attempt to restore or '
+        'reference real customer data.\n'
+        '- Payment gateways and tax APIs run in SANDBOX mode where configured -- expect '
+        'sandbox behaviour, not live transactions.\n'
+        '- Some third-party integrations may intentionally still use live production '
+        'credentials (a deliberate operator decision, not an oversight) -- be mindful of '
+        'real API usage/cost before assuming everything here is a sandbox.\n'
+        f'- {excluded} are NOT tracked on this branch (excluded from the baseline commit) -- '
+        'they are build artifacts, not source. Editing inside them will not show up in `git '
+        'diff`.\n'
+        '- Do NOT push this branch anywhere -- it is local-only, for diff/audit purposes on '
+        'this node.\n'
+        f'- This site is served at {access_url}, specific to THIS node -- do not hardcode the '
+        'original production domain into any config you change.\n'
+    )
+
+
+def generate_git_baseline_commands(hostname: str, config: SanitizationConfig) -> list[str]:
+    """Write `AI_INSTRUCTIONS.md` and commit a clean git baseline snapshot.
+
+    Initializes a git repo at `config.magento_root` if one doesn't already
+    exist (a Hypernode Deploy-managed app may already have one, in which
+    case this reuses it rather than destroying its history), strips any
+    configured remote (defense against an AI later accidentally pushing to
+    a real origin), then checks out `config.git_baseline_branch` and commits
+    every file EXCEPT `GIT_EXCLUDED_PATHS` -- giving a client's AI a known-
+    good starting point to diff its own SSH-driven edits against.
+
+    Runs LAST in the overall sanitization sequence (after every other
+    command has already succeeded), so the baseline snapshot reflects the
+    node's genuinely final, fully-sanitized state -- not an intermediate one.
+
+    `--allow-empty` on the commit guarantees this never fails with "nothing
+    to commit" (e.g. a from-scratch `git init` with no exclusions matching
+    anything unusual) -- every other command here is similarly written to
+    always exit 0, since a non-zero exit from ANY sanitization command
+    raises `SanitizationFailedError` and withholds the node.
+
+    Returns `[]` if `config.git_baseline_enabled` is `False`.
+    """
+    if not config.git_baseline_enabled:
+        return []
+
+    instructions = _build_ai_instructions_content(hostname, config)
+    write_instructions_command = _with_magento_root(
+        config,
+        f"cat > {shlex.quote(AI_INSTRUCTIONS_FILENAME)} << 'PBAIINSTRUCTIONSEOF'\n"
+        f'{instructions}'
+        'PBAIINSTRUCTIONSEOF',
+    )
+
+    exclude_pathspecs = ' '.join(f"':!{path}'" for path in GIT_EXCLUDED_PATHS)
+    branch = shlex.quote(config.git_baseline_branch)
+
+    return [
+        write_instructions_command,
+        _with_magento_root(
+            config,
+            'git rev-parse --is-inside-work-tree > /dev/null 2>&1 || git init',
+        ),
+        _with_magento_root(
+            config,
+            'git remote | xargs -r -n1 git remote remove > /dev/null 2>&1 || true',
+        ),
+        _with_magento_root(config, f'git checkout -B {branch}'),
+        _with_magento_root(config, f'git add -A -- . {exclude_pathspecs}'),
+        _with_magento_root(
+            config,
+            "git -c user.email='brancher-preview@localhost' -c user.name='Brancher Preview' "
+            f"commit --allow-empty -m {shlex.quote(GIT_BASELINE_COMMIT_MESSAGE)}",
+        ),
+    ]
 
 
 def generate_sanitization_commands(

@@ -150,15 +150,16 @@ def make_sanitization_config() -> SanitizationConfig:
             table='admin_user',
             set_columns={'password': "'unused-in-this-test'"},
         ),
-        # Keeps tests unrelated to the vhost/base-URL/basic-auth/admin-user
-        # features themselves focused on sanitization-command counting —
-        # dedicated tests below cover each explicitly with the relevant
-        # field set.
+        # Keeps tests unrelated to the vhost/base-URL/basic-auth/admin-user/
+        # git-baseline features themselves focused on sanitization-command
+        # counting — dedicated tests below cover each explicitly with the
+        # relevant field set.
         vhost_webroot=None,
         basic_auth_username=None,
         preview_admin_username=None,
         base_url_admin_store_scope_codes=(),
         disable_custom_admin_url=False,
+        git_baseline_enabled=False,
     )
 
 

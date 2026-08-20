@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 from pb_hypernode_mcp.api_client import HypernodeApiClient
 from pb_hypernode_mcp.config import load_settings
 from pb_hypernode_mcp.sanitization.commands import (
+    generate_git_baseline_commands,
     generate_sanitization_commands,
     generate_url_setup_commands,
 )
@@ -398,10 +399,14 @@ async def spinup_sanitized_brancher_node(
     # all-must-succeed-or-nothing-is-reported-ready discipline as the PII
     # sanitization commands below (same loop, same SanitizationFailedError) —
     # a node whose base URL/vhost never got wired is just as unfit to hand
-    # back as one whose PII was never anonymized.
-    commands = generate_url_setup_commands(
-        hostname, sanitization_config, basic_auth_password
-    ) + generate_sanitization_commands(sanitization_config, admin_password)
+    # back as one whose PII was never anonymized. The git baseline commit
+    # runs LAST (see `generate_git_baseline_commands`'s docstring) so it
+    # captures the node's genuinely final, fully-sanitized state.
+    commands = (
+        generate_url_setup_commands(hostname, sanitization_config, basic_auth_password)
+        + generate_sanitization_commands(sanitization_config, admin_password)
+        + generate_git_baseline_commands(hostname, sanitization_config)
+    )
 
     for index, command in enumerate(commands):
         result = await _exec_with_retry(

@@ -7,6 +7,7 @@ import pytest
 from pb_hypernode_mcp.sanitization.commands import (
     generate_admin_user_command,
     generate_basic_auth_gate_commands,
+    generate_git_baseline_commands,
     generate_sanitization_commands,
     generate_url_setup_commands,
 )
@@ -474,6 +475,69 @@ def test_it_skips_vhost_creation_when_vhost_webroot_is_not_configured() -> None:
     commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
 
     assert not any('hypernode-manage-vhosts' in cmd for cmd in commands)
+
+
+def test_it_writes_ai_instructions_and_commits_a_git_baseline_snapshot() -> None:
+    config = _minimal_config(git_baseline_branch='brancher-preview')
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    assert any('AI_INSTRUCTIONS.md' in cmd and 'cat >' in cmd for cmd in commands)
+    assert any(
+        'git rev-parse --is-inside-work-tree' in cmd and 'git init' in cmd for cmd in commands
+    )
+    assert any('git remote' in cmd and 'remote remove' in cmd for cmd in commands)
+    assert any(cmd.endswith('git checkout -B brancher-preview') for cmd in commands)
+    assert any('git add -A -- .' in cmd for cmd in commands)
+    assert any('git' in cmd and 'commit --allow-empty' in cmd for cmd in commands)
+
+
+def test_it_excludes_build_artifact_paths_from_the_git_baseline_commit() -> None:
+    config = _minimal_config()
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    add_command = next(cmd for cmd in commands if 'git add -A -- .' in cmd)
+    for path in ('vendor', 'generated', 'var', 'pub/static', 'pub/media', 'node_modules'):
+        assert f"':!{path}'" in add_command
+
+
+def test_it_returns_no_git_baseline_commands_when_disabled() -> None:
+    config = _minimal_config(git_baseline_enabled=False)
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    assert commands == []
+
+
+def test_git_baseline_commit_never_fails_on_an_empty_diff() -> None:
+    config = _minimal_config()
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    commit_command = next(cmd for cmd in commands if 'commit --allow-empty' in cmd)
+    assert '--allow-empty' in commit_command
+
+
+def test_ai_instructions_mention_the_branch_hostname_and_excluded_paths() -> None:
+    config = _minimal_config(git_baseline_branch='brancher-preview')
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    write_command = next(cmd for cmd in commands if 'AI_INSTRUCTIONS.md' in cmd)
+    assert 'myapp-eph123456.hypernode.io' in write_command
+    assert 'brancher-preview' in write_command
+    assert 'vendor' in write_command
+    assert 'Do NOT push this branch' in write_command
+
+
+def test_git_baseline_commands_are_wrapped_with_the_magento_root_cd_prefix() -> None:
+    config = _minimal_config(magento_root='current_root')
+
+    commands = generate_git_baseline_commands('myapp-eph123456.hypernode.io', config)
+
+    for cmd in commands:
+        assert cmd.startswith('cd current_root && ')
 
 
 def test_it_raises_a_clear_error_when_the_per_app_config_is_missing_required_fields() -> None:
