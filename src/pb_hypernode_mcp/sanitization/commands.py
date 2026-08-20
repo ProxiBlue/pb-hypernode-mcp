@@ -20,6 +20,7 @@ DB_QUERY_COMMAND = 'n98-magerun2 db:query'
 CONFIG_SET_COMMAND = 'bin/magento config:set'
 CACHE_FLUSH_COMMAND = 'bin/magento cache:flush'
 VHOST_COMMAND = 'hypernode-manage-vhosts'
+ADMIN_USER_CREATE_COMMAND = 'bin/magento admin:user:create'
 BASE_URL_UNSECURE_PATH = 'web/unsecure/base_url'
 BASE_URL_SECURE_PATH = 'web/secure/base_url'
 
@@ -262,11 +263,41 @@ def generate_url_setup_commands(
     return commands
 
 
-def generate_sanitization_commands(config: SanitizationConfig) -> list[str]:
+def generate_admin_user_command(config: SanitizationConfig, password: str) -> str | None:
+    """Build the `bin/magento admin:user:create` call that provisions a real,
+    usable admin login for this node.
+
+    Deliberately a DIFFERENT username than `admin_user_reset`/
+    `admin_primary_user_reset` produce (which rename+lock the ORIGINAL
+    account) -- creating a brand new row avoids any collision with that
+    renamed one, and keeps "the account we deliberately locked" and "the
+    account we deliberately handed out" unambiguous.
+
+    Returns `None` if `config.preview_admin_username` is unset (feature
+    disabled).
+    """
+    if not config.preview_admin_username:
+        return None
+
+    username = config.preview_admin_username
+    email = f'{username}@example.invalid'
+    command = (
+        f'{ADMIN_USER_CREATE_COMMAND} --admin-user={shlex.quote(username)} '
+        f'--admin-password={shlex.quote(password)} --admin-email={shlex.quote(email)} '
+        '--admin-firstname=Preview --admin-lastname=Admin'
+    )
+
+    return _with_magento_root(config, command)
+
+
+def generate_sanitization_commands(
+    config: SanitizationConfig, admin_password: str | None = None
+) -> list[str]:
     """Return the ordered list of shell command strings to sanitize an app.
 
     Ordering: PII table anonymization first, then admin user credential
-    reset, then payment gateway sandbox-forcing, then third-party API key
+    reset (lock the original account, then provision a real usable one),
+    then payment gateway sandbox-forcing, then third-party API key
     stubbing.
     """
     validate_config(config)
@@ -283,6 +314,11 @@ def generate_sanitization_commands(config: SanitizationConfig) -> list[str]:
         commands.append(
             _with_magento_root(config, _build_update_sql(config.admin_primary_user_reset))
         )
+
+    if config.preview_admin_username and admin_password:
+        admin_user_command = generate_admin_user_command(config, admin_password)
+        if admin_user_command is not None:
+            commands.append(admin_user_command)
 
     for setting in config.gateway_sandbox_settings:
         commands.append(_with_magento_root(config, _build_config_set_command(setting)))

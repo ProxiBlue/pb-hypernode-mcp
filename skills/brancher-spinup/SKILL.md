@@ -82,13 +82,20 @@ exposes.
      `bin/magento info:adminuri` output (falls back to `/admin` if that
      couldn't be parsed) — always report this alongside `access_url`, not
      just the storefront link.
-   - `admin_username` / `admin_email` — the sanitized admin login identity
-     (`admin` / `admin@example.invalid` by default). The live production
-     admin username/email is never present on this node.
-   - `admin_password_note` — always report this verbatim. The admin
-     password was deliberately overwritten with an invalid hash during
-     sanitization, so this note (not a real password) is what tells the
-     user how to actually get in if they need to.
+   - `admin_username` / `admin_email` — the sanitized identity of the
+     ORIGINAL admin account (`admin` / `admin@example.invalid` by default).
+     This account is deliberately LOCKED (invalid password hash) — don't
+     present it as a working login. The live production admin
+     username/email is never present on this node.
+   - `admin_password_note` — always report this verbatim. Explains that the
+     account above is intentionally locked and points at
+     `preview_admin_username`/`preview_admin_password` instead.
+   - `preview_admin_username` / `preview_admin_password` — a genuinely
+     usable admin login, freshly created on every node
+     (`bin/magento admin:user:create`) with a random password, `None`/`None`
+     if the server was configured with `preview_admin_username = None`.
+     THIS is the login to report to the user for actually accessing the
+     admin panel — not `admin_username` above.
    - `sales_and_customer_data_sanitized` — always `true` on a successful
      result (sanitization is mandatory and non-bypassable — if this field
      is present at all, PII/sales data has already been anonymized).
@@ -114,9 +121,10 @@ exposes.
    Always report back to the user: the site URL (`access_url`) — and its
    Basic Auth login (`preview_basic_auth_username`/`preview_basic_auth_password`)
    if set, since without it the URL alone won't get anyone in — the admin
-   URL (`admin_url`) with its login (`admin_username`/`admin_email` +
-   `admin_password_note`), and an explicit confirmation that sales/customer
-   data was sanitized. Omit `minutes_remaining`; it carries no real
+   URL (`admin_url`) with its WORKING login (`preview_admin_username`/
+   `preview_admin_password` — NOT `admin_username`/`admin_email`, which is
+   the deliberately-locked original account), and an explicit confirmation
+   that sales/customer data was sanitized. Omit `minutes_remaining`; it carries no real
    information. When the two phase timings are notably uneven (e.g. most of
    the wait was IP assignment, or most of it was SSH), mention the split —
    e.g. "IP assigned after 6 min, SSH reachable 40s after that" — since it
@@ -196,11 +204,13 @@ User: "Spin up a preview of myapp for ticket-482."
      "admin_url": "https://myapp-eph198234.hypernode.io/admin",
      "admin_username": "admin",
      "admin_email": "admin@example.invalid",
-     "admin_password_note": "Password deliberately invalidated during sanitization -- set a real one with `bin/magento admin:user:create` before logging in.",
+     "admin_password_note": "Password deliberately invalidated during sanitization -- this account (the sanitized original) is intentionally locked out; use preview_admin_username/preview_admin_password below to log in instead.",
      "preview_basic_auth_username": "preview",
      "preview_basic_auth_password": "Kj3n_9dQpXm2vLwZ",
+     "preview_admin_username": "preview",
+     "preview_admin_password": "rgIbrYnWwFEJ2nt6xzQ0pA-Aa1!",
      "status": "ready",
-     "sanitization_commands_run": 20,
+     "sanitization_commands_run": 21,
      "sales_and_customer_data_sanitized": True,
      "ip_assigned_after_seconds": 360,
      "ssh_reachable_after_seconds": 40
@@ -211,13 +221,13 @@ User: "Spin up a preview of myapp for ticket-482."
     - Login required: username `preview`, password `Kj3n_9dQpXm2vLwZ`
       (fresh, random every spin-up — not the URL alone).
     - Node: myapp-eph198234
-    - Admin: https://myapp-eph198234.hypernode.io/admin (username: admin,
-      email: admin@example.invalid — password was deliberately invalidated
-      during sanitization; set a real one with `bin/magento
-      admin:user:create` before logging in)
-    - Sanitization: 20 commands run (base URL + vhost + Basic Auth wired to
-      this node, sales/customer PII anonymized, admin credentials reset,
-      payment gateways sandboxed) before this URL was returned.
+    - Admin: https://myapp-eph198234.hypernode.io/admin — username `preview`,
+      password `rgIbrYnWwFEJ2nt6xzQ0pA-Aa1!` (also fresh, random every
+      spin-up).
+    - Sanitization: 21 commands run (base URL + vhost + Basic Auth wired to
+      this node, sales/customer PII anonymized, admin credentials reset +
+      a real admin login provisioned, payment gateways sandboxed) before
+      this URL was returned.
     - Timing: IP assigned after 6 min, SSH reachable 40s after that.
     - Need to SSH in directly? I can pull connection details via
       brancher_ssh_info."

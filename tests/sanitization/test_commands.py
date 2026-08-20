@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pb_hypernode_mcp.sanitization.commands import (
+    generate_admin_user_command,
     generate_basic_auth_gate_commands,
     generate_sanitization_commands,
     generate_url_setup_commands,
@@ -145,6 +146,34 @@ def test_it_omits_the_primary_admin_reset_command_when_not_configured() -> None:
     commands = generate_sanitization_commands(config)
 
     assert not any('SELECT MIN(t.user_id)' in cmd for cmd in commands)
+
+
+def test_it_creates_a_real_usable_admin_login_distinct_from_the_locked_original() -> None:
+    config = _minimal_config(preview_admin_username='preview')
+
+    command = generate_admin_user_command(config, 'sekret-pw')
+
+    assert command == (
+        'cd current_root && bin/magento admin:user:create --admin-user=preview '
+        '--admin-password=sekret-pw --admin-email=preview@example.invalid '
+        '--admin-firstname=Preview --admin-lastname=Admin'
+    )
+
+
+def test_it_returns_no_admin_user_command_when_preview_admin_username_is_not_configured() -> None:
+    config = _minimal_config(preview_admin_username=None)
+
+    assert generate_admin_user_command(config, 'pw') is None
+
+
+def test_sanitization_includes_admin_user_create_command_only_when_password_is_given() -> None:
+    config = _minimal_config(preview_admin_username='preview')
+
+    with_password = generate_sanitization_commands(config, admin_password='sekret-pw')
+    without_password = generate_sanitization_commands(config)
+
+    assert any('admin:user:create' in cmd for cmd in with_password)
+    assert not any('admin:user:create' in cmd for cmd in without_password)
 
 
 def test_it_generates_a_core_config_data_upsert_to_force_the_payment_gateway_to_sandbox_per_the_config() -> (  # noqa: E501

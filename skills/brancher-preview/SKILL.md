@@ -23,8 +23,10 @@ minutes. This skill does not delete the node itself — that is
    a label if missing, call `brancher_create`, report `node_name`,
    `access_url` with its Basic Auth login (`preview_basic_auth_username`/
    `preview_basic_auth_password`, if set — without it the URL alone won't
-   get anyone in), `admin_url` with its login (`admin_username`/`admin_email`
-   + `admin_password_note`), `status`, `sanitization_commands_run`, and an
+   get anyone in), `admin_url` with its WORKING login
+   (`preview_admin_username`/`preview_admin_password` — NOT
+   `admin_username`/`admin_email`, which is the deliberately-locked
+   original account), `status`, `sanitization_commands_run`, and an
    explicit `sales_and_customer_data_sanitized` confirmation —
    `minutes_remaining` is always `None`; see the `brancher-spinup` skill for
    why, and don't report it as if it were meaningful data). The wait itself is two
@@ -128,8 +130,9 @@ User: "Spin up a preview of myapp for ticket-482, push my local branch's
      admin_url: "https://myapp-eph198234.hypernode.io/admin", admin_username: "admin",
      admin_email: "admin@example.invalid",
      preview_basic_auth_username: "preview", preview_basic_auth_password: "Kj3n_9dQpXm2vLwZ",
+     preview_admin_username: "preview", preview_admin_password: "rgIbrYnWwFEJ2nt6xzQ0pA-Aa1!",
      minutes_remaining: None, status: "ready",
-     sanitization_commands_run: 20, sales_and_customer_data_sanitized: True,
+     sanitization_commands_run: 21, sales_and_customer_data_sanitized: True,
      ip_assigned_after_seconds: 360, ssh_reachable_after_seconds: 40 }
 
 2. brancher_put(node_name="myapp-eph198234",

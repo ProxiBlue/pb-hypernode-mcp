@@ -47,12 +47,18 @@ PasswordGeneratorFn = Callable[[], str]
 
 
 def _default_generate_password() -> str:
-    """Generate a fresh, random per-node Basic Auth password.
+    """Generate a fresh, random per-node password.
 
     `secrets.token_urlsafe` (not `random`/`uuid`) -- cryptographically
     secure, matching the security-critical nature of what this gates.
+    Used for both the Basic Auth htpasswd (no complexity requirement) and
+    the `bin/magento admin:user:create` password (which DOES enforce
+    Magento's default complexity policy: length >= 7, at least 3 of 4
+    character classes). `token_urlsafe`'s alphabet alone isn't guaranteed
+    to include every class on every call; the fixed suffix guarantees it
+    deterministically rather than probabilistically.
     """
-    return secrets.token_urlsafe(16)
+    return f'{secrets.token_urlsafe(16)}-Aa1!'
 
 DEFAULT_READY_PROBE_COMMAND = 'echo ready'
 DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS = 10.0
@@ -338,11 +344,15 @@ async def spinup_sanitized_brancher_node(
     access_url = ACCESS_URL_TEMPLATE.format(node_name=node_name)
     hostname = f'{node_name}.hypernode.io'
 
-    # Generated even when Basic Auth is disabled (`generate_password` is
-    # cheap and `generate_url_setup_commands` simply ignores it if
-    # `sanitization_config.basic_auth_username` is unset) -- keeps this
-    # call site simple rather than conditionally skipping generation.
+    # Generated even when the relevant feature is disabled (cheap, and
+    # `generate_url_setup_commands`/`generate_sanitization_commands` simply
+    # ignore the password if `basic_auth_username`/`preview_admin_username`
+    # is unset) -- keeps this call site simple rather than conditionally
+    # skipping generation. Two INDEPENDENT passwords -- the Basic Auth gate
+    # and the admin panel login are different security boundaries and must
+    # never share a secret.
     basic_auth_password = generate_password()
+    admin_password = generate_password()
 
     # URL/vhost setup commands run FIRST and share the exact same
     # all-must-succeed-or-nothing-is-reported-ready discipline as the PII
@@ -351,7 +361,7 @@ async def spinup_sanitized_brancher_node(
     # back as one whose PII was never anonymized.
     commands = generate_url_setup_commands(
         hostname, sanitization_config, basic_auth_password
-    ) + generate_sanitization_commands(sanitization_config)
+    ) + generate_sanitization_commands(sanitization_config, admin_password)
 
     for index, command in enumerate(commands):
         result = await _exec_with_retry(
@@ -382,12 +392,17 @@ async def spinup_sanitized_brancher_node(
         'admin_username': sanitization_config.admin_reset_username,
         'admin_email': sanitization_config.admin_reset_email,
         'admin_password_note': (
-            'Password deliberately invalidated during sanitization -- set a real '
-            'one with `bin/magento admin:user:create` before logging in.'
+            "Password deliberately invalidated during sanitization -- this account "
+            "(the sanitized original) is intentionally locked out; use "
+            "preview_admin_username/preview_admin_password below to log in instead."
         ),
         'preview_basic_auth_username': sanitization_config.basic_auth_username,
         'preview_basic_auth_password': (
             basic_auth_password if sanitization_config.basic_auth_username else None
+        ),
+        'preview_admin_username': sanitization_config.preview_admin_username,
+        'preview_admin_password': (
+            admin_password if sanitization_config.preview_admin_username else None
         ),
         'status': 'ready',
         'sanitization_commands_run': len(commands),

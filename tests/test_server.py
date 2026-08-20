@@ -174,6 +174,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result.pop('preview_basic_auth_password')
+    assert result.pop('preview_admin_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -182,12 +183,14 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
         'admin_username': 'admin',
         'admin_email': 'admin@example.invalid',
         'admin_password_note': (
-            'Password deliberately invalidated during sanitization -- set a real '
-            'one with `bin/magento admin:user:create` before logging in.'
+            "Password deliberately invalidated during sanitization -- this account "
+            "(the sanitized original) is intentionally locked out; use "
+            "preview_admin_username/preview_admin_password below to log in instead."
         ),
         'preview_basic_auth_username': 'preview',
+        'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 20,
+        'sanitization_commands_run': 21,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -225,6 +228,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result.pop('preview_basic_auth_password')
+    assert result.pop('preview_admin_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -233,12 +237,14 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
         'admin_username': 'admin',
         'admin_email': 'admin@example.invalid',
         'admin_password_note': (
-            'Password deliberately invalidated during sanitization -- set a real '
-            'one with `bin/magento admin:user:create` before logging in.'
+            "Password deliberately invalidated during sanitization -- this account "
+            "(the sanitized original) is intentionally locked out; use "
+            "preview_admin_username/preview_admin_password below to log in instead."
         ),
         'preview_basic_auth_username': 'preview',
+        'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 20,
+        'sanitization_commands_run': 21,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -275,6 +281,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
     assert result.pop('preview_basic_auth_password')
+    assert result.pop('preview_admin_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -283,12 +290,14 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
         'admin_username': 'admin',
         'admin_email': 'admin@example.invalid',
         'admin_password_note': (
-            'Password deliberately invalidated during sanitization -- set a real '
-            'one with `bin/magento admin:user:create` before logging in.'
+            "Password deliberately invalidated during sanitization -- this account "
+            "(the sanitized original) is intentionally locked out; use "
+            "preview_admin_username/preview_admin_password below to log in instead."
         ),
         'preview_basic_auth_username': 'preview',
+        'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 20,
+        'sanitization_commands_run': 21,
         'sales_and_customer_data_sanitized': True,
     }
 
