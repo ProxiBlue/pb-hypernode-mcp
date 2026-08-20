@@ -146,9 +146,16 @@ def test_it_omits_the_primary_admin_reset_command_when_not_configured() -> None:
     assert not any('SELECT MIN(t.user_id)' in cmd for cmd in commands)
 
 
-def test_it_generates_a_bin_magento_config_set_command_to_force_the_payment_gateway_to_sandbox_per_the_config() -> (  # noqa: E501
+def test_it_generates_a_core_config_data_upsert_to_force_the_payment_gateway_to_sandbox_per_the_config() -> (  # noqa: E501
     None
 ):
+    """VERIFIED (2026-08-20) against a real Braintree install:
+    `bin/magento config:set` refused a genuinely real, actively-used config
+    path with "doesn't exist" (it validates against system.xml-declared
+    admin-UI fields, which don't always match reality). A raw
+    `core_config_data` UPSERT writes the exact same underlying value
+    Magento's runtime config reader actually consults, without that
+    unrelated validation layer in the way."""
     config = _minimal_config(
         gateway_sandbox_settings=(
             GatewaySandboxSetting(
@@ -160,9 +167,11 @@ def test_it_generates_a_bin_magento_config_set_command_to_force_the_payment_gate
 
     commands = generate_sanitization_commands(config)
 
-    assert (
-        'cd current_root && bin/magento config:set payment/braintree/environment sandbox'
-        in commands
+    assert any(
+        'INSERT INTO core_config_data' in cmd
+        and "'default', 0, 'payment/braintree/environment', 'sandbox'" in cmd
+        and 'ON DUPLICATE KEY UPDATE' in cmd
+        for cmd in commands
     )
 
 
@@ -184,14 +193,49 @@ def test_it_generates_commands_to_stub_each_configured_third_party_api_key_to_a_
 
     commands = generate_sanitization_commands(config)
 
-    assert (
-        'cd current_root && bin/magento config:set carriers/shipperhq/api_key sandbox-dummy-key'
-        in commands
+    assert any(
+        "'default', 0, 'carriers/shipperhq/api_key', 'sandbox-dummy-key'" in cmd
+        for cmd in commands
     )
-    assert (
-        'cd current_root && bin/magento config:set tax/avatax/license_key dummy-license-key'
-        in commands
+    assert any(
+        "'default', 0, 'tax/avatax/license_key', 'dummy-license-key'" in cmd for cmd in commands
     )
+
+
+def test_it_sql_escapes_a_single_quote_in_a_sandbox_value_not_shell_escapes_it() -> None:
+    config = _minimal_config(
+        gateway_sandbox_settings=(
+            GatewaySandboxSetting(config_path='some/config/path', sandbox_value="o'brien"),
+        ),
+    )
+
+    commands = generate_sanitization_commands(config)
+
+    assert any("'o''brien'" in cmd for cmd in commands)
+
+
+def test_it_flushes_cache_once_after_gateway_and_api_key_upserts_so_they_actually_take_effect() -> (  # noqa: E501
+    None
+):
+    config = _minimal_config(
+        gateway_sandbox_settings=(
+            GatewaySandboxSetting(
+                config_path='payment/braintree/environment', sandbox_value='sandbox'
+            ),
+        ),
+    )
+
+    commands = generate_sanitization_commands(config)
+
+    assert commands[-1] == 'cd current_root && bin/magento cache:flush'
+
+
+def test_it_omits_the_trailing_cache_flush_when_there_are_no_gateway_or_api_key_settings() -> None:
+    config = _minimal_config()  # no gateway_sandbox_settings, no api_key_stubs
+
+    commands = generate_sanitization_commands(config)
+
+    assert 'cd current_root && bin/magento cache:flush' not in commands
 
 
 def test_it_skips_the_cd_current_root_prefix_when_magento_root_is_empty() -> None:

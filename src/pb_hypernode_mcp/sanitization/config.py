@@ -186,8 +186,13 @@ DEFAULT_MAGENTO_SANITIZATION_CONFIG = SanitizationConfig(
         PiiTableSanitizer(
             table='sales_order_payment',
             set_columns={
+                # VERIFIED (2026-08-20) against a real Magento schema:
+                # `sales_order_payment` has no `cc_cid_enc` column at all
+                # (unlike `quote_payment` above) -- CVV/CID is never stored
+                # post-order per PCI-DSS, so Magento core never added the
+                # column here. Including it broke every sanitization run
+                # with "Unknown column 'cc_cid_enc' in 'field list'".
                 'cc_number_enc': 'NULL',
-                'cc_cid_enc': 'NULL',
                 'cc_owner': 'NULL',
                 'cc_trans_id': 'NULL',
                 'additional_data': 'NULL',
@@ -230,14 +235,17 @@ DEFAULT_MAGENTO_SANITIZATION_CONFIG = SanitizationConfig(
         # VERIFIED (2026-08-20) against a real 15-row admin_user table.
         where='user_id = (SELECT MIN(t.user_id) FROM (SELECT user_id FROM admin_user) AS t)',
     ),
+    # `paypal/general/sandbox_flag` deliberately NOT included: VERIFIED
+    # (2026-08-20) against a real Magento 2.4.9 install that this path does
+    # not exist at all -- no `sandbox_flag` field anywhere under
+    # `paypal/general/*` on a current Magento version (legacy PayPal
+    # Standard/Express convention). PayPal payments on a real account run
+    # entirely through Braintree's own `braintree_paypal` integration,
+    # already covered by `payment/braintree/environment` below.
     gateway_sandbox_settings=(
         GatewaySandboxSetting(
             config_path='payment/braintree/environment',
             sandbox_value='sandbox',
-        ),
-        GatewaySandboxSetting(
-            config_path='paypal/general/sandbox_flag',
-            sandbox_value='1',
         ),
     ),
     # ShipperHQ deliberately NOT stubbed here (explicit client decision,

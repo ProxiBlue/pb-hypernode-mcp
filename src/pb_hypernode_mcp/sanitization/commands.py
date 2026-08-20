@@ -49,14 +49,37 @@ def _build_update_sql(sanitizer: PiiTableSanitizer) -> str:
 
 
 def _build_config_set_command(setting: GatewaySandboxSetting) -> str:
-    """Build a `bin/magento config:set` call that forces one config path to a sandbox value.
+    """Build a raw `core_config_data` UPSERT that forces one config path to a sandbox value.
 
-    SECURITY: `setting.config_path` is interpolated unescaped (only
-    `sandbox_value` gets `shlex.quote()`). Same landmine/caveat as
-    `_build_update_sql` above — safe only because `config_path` currently
-    only ever comes from the hardcoded default config, never external input.
+    VERIFIED (2026-08-20) against a real Braintree install: `bin/magento
+    config:set` validates the path against system.xml-declared admin-UI
+    fields and refused a genuinely real, actively-used config path
+    (`payment/braintree/environment`) with "doesn't exist" -- even though
+    that exact path already had a real row in `core_config_data` written by
+    the app's own admin panel. Magento's runtime config reader
+    (`ScopeConfigInterface`) reads raw DB rows directly and has no
+    knowledge of system.xml at all, so a raw UPSERT achieves the actual
+    sanitization goal (the live value a payment/tax integration will
+    actually read) without fighting the CLI's unrelated admin-UI validation
+    layer. `bin/magento config:set` is still used for `base_url` in
+    `generate_url_setup_commands` above, since that needs its special
+    `--lock-env` env.php-writing behavior, not just a plain DB write.
+
+    SECURITY: `setting.config_path` is interpolated unescaped. Same
+    landmine/caveat as `_build_update_sql` above — safe only because it
+    currently only ever comes from the hardcoded default config, never
+    external input. `sandbox_value` gets SQL-escaped (`'` doubled), which is
+    NOT shell-escaping — this value is embedded inside a SQL string
+    literal, not a shell argument.
     """
-    return f'{CONFIG_SET_COMMAND} {setting.config_path} {shlex.quote(setting.sandbox_value)}'
+    escaped_value = setting.sandbox_value.replace("'", "''")
+    sql = (
+        f"INSERT INTO core_config_data (scope, scope_id, path, value) "
+        f"VALUES ('default', 0, '{setting.config_path}', '{escaped_value}') "
+        f"ON DUPLICATE KEY UPDATE value = '{escaped_value}';"
+    )
+
+    return f'{DB_QUERY_COMMAND} "{sql}"'
 
 
 def _with_magento_root(config: SanitizationConfig, command: str) -> str:
@@ -148,5 +171,13 @@ def generate_sanitization_commands(config: SanitizationConfig) -> list[str]:
 
     for stub in config.api_key_stubs:
         commands.append(_with_magento_root(config, _build_config_set_command(stub)))
+
+    # The gateway/api-key commands above write config directly to
+    # core_config_data (see `_build_config_set_command`'s docstring) rather
+    # than through `bin/magento config:set`, which would normally trigger
+    # its own cache invalidation. A trailing flush guarantees the sandboxed
+    # values are actually served, not a stale cached config.
+    if config.gateway_sandbox_settings or config.api_key_stubs:
+        commands.append(_with_magento_root(config, CACHE_FLUSH_COMMAND))
 
     return commands
