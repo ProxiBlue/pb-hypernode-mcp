@@ -85,11 +85,15 @@ DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS = 5.0
 
 ACCESS_URL_TEMPLATE = 'https://{node_name}.hypernode.io/'
 
-# Real Magento CLI command (`Magento\Backend\Console\Command\InfoAdminUriCommand`)
-# that prints the app's current admin path — used only for reporting, never
-# a sanitization-critical step, so a failure/unexpected-output here falls
-# back to Magento's own out-of-the-box default rather than blocking spin-up.
-ADMIN_URI_COMMAND = 'bin/magento info:adminuri'
+# VERIFIED (2026-08-20) against multiple real Brancher nodes: `bin/magento
+# info:adminuri` is susceptible to reporting a stale admin path (`/admin`
+# instead of the real, customized one) immediately after the sanitization
+# sequence -- root-caused across v0.4.4/v0.4.5 as either a Magento
+# config-cache race or a Hypernode clone-sync lag, neither fix actually
+# held up under repeat live testing. n98-magerun2's own `info:adminuri`
+# has been reliable on this account throughout -- switched to it instead of
+# continuing to chase timing workarounds around the Magento CLI command.
+ADMIN_URI_COMMAND = 'n98-magerun2 info:adminuri'
 DEFAULT_ADMIN_PATH = '/admin'
 _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 
@@ -106,24 +110,6 @@ _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 # real path instead of silently guessing.
 DEFAULT_ADMIN_PATH_RESOLVE_RETRIES = 10
 DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS = 10.0
-
-# VERIFIED (2026-08-20) against a real Brancher node (ppsdev-ephy4kowy), with
-# hard filesystem-timestamp evidence: `app/etc/env.php` (which carries the
-# real custom admin `frontName`) was overwritten by Hypernode's own
-# asynchronous clone/deploy process (an ansible-driven "brancher install
-# hook") roughly 21s AFTER SSH already reported reachable. This is NOT a
-# Magento config-cache race -- it is Hypernode's own clone finishing its
-# file sync after SSH access already exists. The v0.4.4 "confirm two
-# consecutive matching reads" fix was actively counterproductive against
-# this shape of failure: the pre-sync env.php parses just as cleanly as the
-# post-sync one, so two consecutive EARLY reads agree with each other on the
-# WRONG value and get trusted immediately, well before the real file lands
-# -- even though the overall retry budget was long enough to reach the
-# correct value eventually. A fixed settle delay BEFORE the first attempt
-# directly targets the evidenced cause; the retry loop below (including its
-# two-consecutive-matching-reads check) remains as defense-in-depth against
-# any OTHER residual raciness on top of it.
-DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS = 30.0
 
 
 class BrancherSpinupError(Exception):
@@ -279,51 +265,29 @@ async def _resolve_admin_path(
     timeout: float,
     retries: int,
     retry_delay: float,
-    settle_delay: float,
     sleep: SleepFn,
 ) -> str:
-    """Best-effort: parse the app's actual admin path via `bin/magento info:adminuri`.
+    """Best-effort: parse the app's actual admin path via `n98-magerun2 info:adminuri`.
 
     Purely informational (never blocks or fails spin-up) — this runs after
     sanitization has already fully succeeded, so a wrong/missing admin path
     only means a slightly-off `admin_url` in the report, never a withheld
     access URL or an unsanitized node.
 
-    VERIFIED (2026-08-20) against a real Brancher node, FOUR TIMES, each a
-    genuinely distinct failure class:
-    1. Gave up to `DEFAULT_ADMIN_PATH` on the FIRST failure with no retry.
-       Fixed by retrying on a raised exception.
-    2. That still wasn't enough -- a command that RAN and returned a
-       non-zero exit code, or empty/unparseable stdout (both plausible
-       right after the heavy sanitization/cache-flush sequence this runs
-       immediately after), was never retried at all. Fixed by retrying on
-       ANY of exception / non-zero exit_code / unparseable stdout.
-    3. STILL not enough -- a run reported `/admin` when the real path was
-       `/admin-uptactics`, even though `exec_command` returned a clean
-       `exit_code=0` with genuinely parseable stdout, AND the exact same
-       command gave the correct answer when re-run moments later. Fixed
-       (v0.4.4) by requiring the SAME value on two CONSECUTIVE successful
-       reads before trusting it.
-    4. v0.4.4's fix was ITSELF insufficient, on a DIFFERENT live node
-       (ppsdev-ephy4kowy) -- confirmed via hard filesystem-timestamp
-       evidence: `app/etc/env.php` (which carries the real admin
-       `frontName`) was overwritten by Hypernode's own asynchronous
-       clone/deploy process (an ansible-driven "brancher install hook")
-       roughly 21s AFTER SSH already reported reachable. This is Hypernode's
-       OWN clone still finishing its file sync, not a Magento cache race --
-       the pre-sync env.php parses just as cleanly as the post-sync one, so
-       two consecutive EARLY reads happily agreed with each other on the
-       WRONG value and got trusted immediately, well before the real file
-       landed, even though the overall retry budget was long enough to
-       reach the correct value eventually. Fixed by sleeping `settle_delay`
-       BEFORE the first attempt, giving Hypernode's file sync a head start
-       -- the confirm-twice check from point 3 stays in place on top of it,
-       as defense-in-depth against any OTHER residual raciness.
+    VERIFIED (2026-08-20) against a real Brancher node, TWICE: gave up to
+    `DEFAULT_ADMIN_PATH` on the first failure with no retry at all, then on a
+    command that RAN and returned a non-zero exit code or unparseable stdout
+    without ever retrying either. Fixed by retrying on ANY of exception /
+    non-zero exit_code / unparseable stdout.
+
+    `bin/magento info:adminuri` itself turned out to be the wrong tool here
+    -- two separate live-tested attempts at working around its behaviour
+    (a two-consecutive-matching-reads check, then a fixed settle delay
+    before the first read) both failed to reliably produce the real admin
+    path. Switched to n98-magerun2's own `info:adminuri`, which has been
+    reliable on this account throughout -- see `ADMIN_URI_COMMAND`'s
+    docstring.
     """
-    await sleep(settle_delay)
-
-    previous_value: str | None = None
-
     for attempt in range(retries + 1):
         try:
             result = await exec_command(
@@ -334,22 +298,15 @@ async def _resolve_admin_path(
         except Exception:
             result = None
 
-        match = None
         if result is not None and result.get('exit_code') == 0:
             match = _ADMIN_PATH_PATTERN.search(result.get('stdout', ''))
-
-        if match is not None and match.group(1) == previous_value:
-            return match.group(1)
-
-        previous_value = match.group(1) if match is not None else None
+            if match:
+                return match.group(1)
 
         if attempt < retries:
             await sleep(retry_delay)
 
-    # Ran out of retries without two consecutive agreeing reads -- a single
-    # unconfirmed real value is still a better bet than the hardcoded
-    # default, so prefer it if we ever saw one at all.
-    return previous_value or DEFAULT_ADMIN_PATH
+    return DEFAULT_ADMIN_PATH
 
 
 async def spinup_sanitized_brancher_node(
@@ -368,7 +325,6 @@ async def spinup_sanitized_brancher_node(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
-    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -466,7 +422,6 @@ async def spinup_sanitized_brancher_node(
         timeout=sanitization_command_timeout,
         retries=admin_path_resolve_retries,
         retry_delay=admin_path_resolve_retry_delay_seconds,
-        settle_delay=admin_path_resolve_settle_seconds,
         sleep=resolved_sleep,
     )
 
@@ -512,7 +467,6 @@ def register(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
-    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -561,7 +515,6 @@ def register(
             sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
             admin_path_resolve_retries=admin_path_resolve_retries,
             admin_path_resolve_retry_delay_seconds=admin_path_resolve_retry_delay_seconds,
-            admin_path_resolve_settle_seconds=admin_path_resolve_settle_seconds,
             generate_password=generate_password,
             sleep=sleep,
             clock=clock,
