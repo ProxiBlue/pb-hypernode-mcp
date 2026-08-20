@@ -154,6 +154,14 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
+        # `_resolve_admin_path` now retries on unparseable stdout (not just
+        # a raised exception) -- the default 'ok\n' stdout never parses for
+        # `bin/magento info:adminuri`, which would otherwise exhaust every
+        # retry with a REAL asyncio.sleep() in tests that don't inject a
+        # fake `sleep`, silently costing tens of seconds per test.
+        if any('info:adminuri' in str(arg) for arg in args):
+            return FakeSubprocess(stdout=b'Admin URI: /admin\n')
+
         return FakeSubprocess()
 
     monkeypatch.setattr(
@@ -190,7 +198,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
         'preview_basic_auth_username': 'preview',
         'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 21,
+        'sanitization_commands_run': 24,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -202,6 +210,14 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
+        # `_resolve_admin_path` now retries on unparseable stdout (not just
+        # a raised exception) -- the default 'ok\n' stdout never parses for
+        # `bin/magento info:adminuri`, which would otherwise exhaust every
+        # retry with a REAL asyncio.sleep() in tests that don't inject a
+        # fake `sleep`, silently costing tens of seconds per test.
+        if any('info:adminuri' in str(arg) for arg in args):
+            return FakeSubprocess(stdout=b'Admin URI: /admin\n')
+
         return FakeSubprocess()
 
     monkeypatch.setattr(
@@ -244,7 +260,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
         'preview_basic_auth_username': 'preview',
         'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 21,
+        'sanitization_commands_run': 24,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -256,6 +272,14 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
     monkeypatch.setattr('pb_hypernode_mcp.server.HypernodeApiClient', FakeApiClient)
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
+        # `_resolve_admin_path` now retries on unparseable stdout (not just
+        # a raised exception) -- the default 'ok\n' stdout never parses for
+        # `bin/magento info:adminuri`, which would otherwise exhaust every
+        # retry with a REAL asyncio.sleep() in tests that don't inject a
+        # fake `sleep`, silently costing tens of seconds per test.
+        if any('info:adminuri' in str(arg) for arg in args):
+            return FakeSubprocess(stdout=b'Admin URI: /admin\n')
+
         return FakeSubprocess()
 
     monkeypatch.setattr(
@@ -297,7 +321,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
         'preview_basic_auth_username': 'preview',
         'preview_admin_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 21,
+        'sanitization_commands_run': 24,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -371,6 +395,14 @@ async def test_it_exposes_brancher_exec_as_a_callable_mcp_tool_on_the_server(
     monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp": "test-token"}')
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
+        # `_resolve_admin_path` now retries on unparseable stdout (not just
+        # a raised exception) -- the default 'ok\n' stdout never parses for
+        # `bin/magento info:adminuri`, which would otherwise exhaust every
+        # retry with a REAL asyncio.sleep() in tests that don't inject a
+        # fake `sleep`, silently costing tens of seconds per test.
+        if any('info:adminuri' in str(arg) for arg in args):
+            return FakeSubprocess(stdout=b'Admin URI: /admin\n')
+
         return FakeSubprocess()
 
     monkeypatch.setattr(
@@ -429,6 +461,14 @@ async def test_it_constructs_a_single_shared_hypernode_api_client_reused_across_
     FakeApiClient.instances = 0
 
     async def fake_create_subprocess_exec(*args: Any, **kwargs: Any) -> FakeSubprocess:
+        # `_resolve_admin_path` now retries on unparseable stdout (not just
+        # a raised exception) -- the default 'ok\n' stdout never parses for
+        # `bin/magento info:adminuri`, which would otherwise exhaust every
+        # retry with a REAL asyncio.sleep() in tests that don't inject a
+        # fake `sleep`, silently costing tens of seconds per test.
+        if any('info:adminuri' in str(arg) for arg in args):
+            return FakeSubprocess(stdout=b'Admin URI: /admin\n')
+
         return FakeSubprocess()
 
     monkeypatch.setattr(

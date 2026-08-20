@@ -139,6 +139,31 @@ class SanitizationConfig:
     # must extend this tuple; empty tuple skips website-scope overrides.
     base_url_website_scope_codes: tuple[str, ...] = ('base',)
 
+    # Same override, but for `stores`-scoped `env.php` config -- a
+    # DIFFERENT scope type than `base_url_website_scope_codes` above, not a
+    # duplicate. VERIFIED (2026-08-20) against a real Brancher node:
+    # `env.php` also had a `stores.admin.web.{secure,unsecure}.base_url`
+    # override still pointing at the old domain. 'admin' is Magento's own
+    # reserved store code for the admin area (present on every install),
+    # so overriding it is safe/general, not account-specific. Empty tuple
+    # skips this pass.
+    base_url_admin_store_scope_codes: tuple[str, ...] = ('admin',)
+
+    # VERIFIED (2026-08-20) against a real Brancher node: THE root cause of
+    # an admin login that 404s even though everything else (storefront,
+    # vhost, base_url, Basic Auth, the real admin login) is correctly
+    # wired. Magento has a SEPARATE, DB-driven admin URL override
+    # (`admin/url/use_custom` + `admin/url/custom`, distinct from
+    # `backend.frontName`/env.php) -- when enabled, Magento's admin router
+    # refuses to serve the admin area on any hostname other than the
+    # configured custom one (a real production admin subdomain in this
+    # case), which a Brancher node's ephemeral hostname can never match.
+    # Always disabled (not a config toggle): a stale custom-admin-domain
+    # override is never correct on an ephemeral node, so there's no
+    # legitimate reason to keep it enabled here the way, say, ShipperHQ's
+    # live API key is deliberately left alone.
+    disable_custom_admin_url: bool = True
+
 
 def validate_config(config: SanitizationConfig) -> None:
     """Raise `SanitizationConfigError` if `config` is missing required fields.

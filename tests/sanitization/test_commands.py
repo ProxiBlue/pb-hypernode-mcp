@@ -321,6 +321,63 @@ def test_it_skips_website_scope_base_url_overrides_when_no_scope_codes_are_confi
     assert not any('--scope=websites' in cmd for cmd in commands)
 
 
+def test_it_also_overrides_base_url_at_each_configured_admin_store_scope() -> None:
+    """VERIFIED (2026-08-20) against a real Brancher node: env.php also had
+    a SEPARATE `stores.admin.web.{secure,unsecure}.base_url` override --
+    a DIFFERENT scope type (stores, not websites) than
+    base_url_website_scope_codes, still pointing at the old domain."""
+    config = _minimal_config(base_url_admin_store_scope_codes=('admin',))
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert (
+        'cd current_root && bin/magento config:set --lock-env --scope=stores '
+        '--scope-code=admin web/unsecure/base_url https://myapp-eph123456.hypernode.io/'
+        in commands
+    )
+    assert (
+        'cd current_root && bin/magento config:set --lock-env --scope=stores '
+        '--scope-code=admin web/secure/base_url https://myapp-eph123456.hypernode.io/' in commands
+    )
+
+
+def test_it_skips_admin_store_scope_base_url_overrides_when_no_scope_codes_are_configured() -> (
+    None
+):
+    config = _minimal_config(base_url_admin_store_scope_codes=())
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert not any('--scope=stores' in cmd for cmd in commands)
+
+
+def test_it_disables_the_custom_admin_url_override_by_default() -> None:
+    """VERIFIED (2026-08-20) against a real Brancher node: THE actual root
+    cause of an admin login that 404s even though the storefront, vhost,
+    base_url, Basic Auth, and the real admin login are all correctly
+    wired. Magento's admin router refuses to serve the admin area on any
+    hostname other than a configured `admin/url/custom` override (a real
+    production admin subdomain in this case)."""
+    config = _minimal_config(disable_custom_admin_url=True)
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert any(
+        'INSERT INTO core_config_data' in cmd
+        and "'default', 0, 'admin/url/use_custom', '0'" in cmd
+        and 'ON DUPLICATE KEY UPDATE' in cmd
+        for cmd in commands
+    )
+
+
+def test_it_skips_disabling_the_custom_admin_url_override_when_configured_off() -> None:
+    config = _minimal_config(disable_custom_admin_url=False)
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert not any('admin/url/use_custom' in cmd for cmd in commands)
+
+
 def test_it_creates_an_htpasswd_file_and_domain_scoped_basic_auth_rule_when_configured() -> None:
     """VERIFIED (2026-08-20) via docs.hypernode.com's "How to Protect Your
     Magento Store With a Password in Nginx": /data/web/nginx/ is

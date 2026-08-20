@@ -23,6 +23,7 @@ VHOST_COMMAND = 'hypernode-manage-vhosts'
 ADMIN_USER_CREATE_COMMAND = 'bin/magento admin:user:create'
 BASE_URL_UNSECURE_PATH = 'web/unsecure/base_url'
 BASE_URL_SECURE_PATH = 'web/secure/base_url'
+ADMIN_URL_USE_CUSTOM_PATH = 'admin/url/use_custom'
 
 # VERIFIED (2026-08-20) via docs.hypernode.com's "How to Protect Your
 # Magento Store With a Password in Nginx": app-owned (under $HOME),
@@ -238,6 +239,32 @@ def generate_url_setup_commands(
                     f'--scope-code={shlex.quote(scope_code)} {path} {shlex.quote(base_url)}',
                 )
             )
+
+    # Same fix, different scope TYPE (`stores`, not `websites`) -- env.php
+    # can carry an independent stale override for the admin store scope.
+    for scope_code in config.base_url_admin_store_scope_codes:
+        for path in (BASE_URL_UNSECURE_PATH, BASE_URL_SECURE_PATH):
+            commands.append(
+                _with_magento_root(
+                    config,
+                    f'{CONFIG_SET_COMMAND} --lock-env --scope=stores '
+                    f'--scope-code={shlex.quote(scope_code)} {path} {shlex.quote(base_url)}',
+                )
+            )
+
+    # VERIFIED (2026-08-20): THE actual cause of an admin login that 404s
+    # on an otherwise-fully-working node -- see
+    # `SanitizationConfig.disable_custom_admin_url`'s docstring. Raw SQL
+    # UPSERT (same reasoning as `_build_config_set_command`): this needs to
+    # take effect regardless of whether `admin/url/use_custom` is declared
+    # in an enabled module's system.xml.
+    if config.disable_custom_admin_url:
+        sql = (
+            f"INSERT INTO core_config_data (scope, scope_id, path, value) "
+            f"VALUES ('default', 0, '{ADMIN_URL_USE_CUSTOM_PATH}', '0') "
+            f"ON DUPLICATE KEY UPDATE value = '0';"
+        )
+        commands.append(_with_magento_root(config, f'{DB_QUERY_COMMAND} "{sql}"'))
 
     commands.append(_with_magento_root(config, CACHE_FLUSH_COMMAND))
 

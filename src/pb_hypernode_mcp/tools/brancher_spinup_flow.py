@@ -244,6 +244,7 @@ async def _resolve_admin_path(
     node_name: str,
     *,
     exec_command: ExecCommandFn,
+    timeout: float,
     retries: int,
     retry_delay: float,
     sleep: SleepFn,
@@ -255,30 +256,40 @@ async def _resolve_admin_path(
     only means a slightly-off `admin_url` in the report, never a withheld
     access URL or an unsanitized node.
 
-    VERIFIED (2026-08-20) against a real Brancher node: this used to give up
-    to `DEFAULT_ADMIN_PATH` on the FIRST exception with no retry at all --
-    a single transient connectivity blip (the same class this whole flow
-    already retries for sanitization commands) silently produced a wrong,
-    misleading `admin_url` (reported `/admin`, the real path was the site's
-    actual custom `/admin-uptactics`) instead of the real one. Now shares
-    the same bounded retry as the sanitization loop.
+    VERIFIED (2026-08-20) against a real Brancher node, TWICE: this used to
+    give up to `DEFAULT_ADMIN_PATH` on the FIRST failure with no retry at
+    all. The first fix (retry on a raised exception, matching the
+    sanitization loop's retry class) wasn't enough on its own -- a second
+    live run still reported `/admin` when the real path was
+    `/admin-uptactics`, even though the exact same `bin/magento
+    info:adminuri` command worked immediately when run by hand moments
+    later. Root cause: `_exec_with_retry` only retries on a raised
+    exception -- a command that RAN and returned a non-zero exit code (or
+    empty/unparseable stdout, both plausible right after the heavy
+    sanitization/cache-flush sequence this runs immediately after) was
+    never retried at all, just silently parsed-and-fell-back once. This
+    now retries on ANY of the three failure shapes (exception, non-zero
+    exit_code, or unparseable stdout), not just exceptions.
     """
-    try:
-        result = await _exec_with_retry(
-            node_name,
-            ADMIN_URI_COMMAND,
-            exec_command=exec_command,
-            timeout=DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
-            retries=retries,
-            retry_delay=retry_delay,
-            sleep=sleep,
-        )
-    except Exception:
-        return DEFAULT_ADMIN_PATH
+    for attempt in range(retries + 1):
+        try:
+            result = await exec_command(
+                node_name,
+                ADMIN_URI_COMMAND,
+                timeout=timeout,
+            )
+        except Exception:
+            result = None
 
-    match = _ADMIN_PATH_PATTERN.search(result.get('stdout', ''))
+        if result is not None and result.get('exit_code') == 0:
+            match = _ADMIN_PATH_PATTERN.search(result.get('stdout', ''))
+            if match:
+                return match.group(1)
 
-    return match.group(1) if match else DEFAULT_ADMIN_PATH
+        if attempt < retries:
+            await sleep(retry_delay)
+
+    return DEFAULT_ADMIN_PATH
 
 
 async def spinup_sanitized_brancher_node(
@@ -379,6 +390,7 @@ async def spinup_sanitized_brancher_node(
     admin_path = await _resolve_admin_path(
         node_name,
         exec_command=exec_command,
+        timeout=sanitization_command_timeout,
         retries=sanitization_command_retries,
         retry_delay=sanitization_retry_delay_seconds,
         sleep=sleep,

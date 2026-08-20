@@ -157,17 +157,30 @@ def make_sanitization_config() -> SanitizationConfig:
         vhost_webroot=None,
         basic_auth_username=None,
         preview_admin_username=None,
+        base_url_admin_store_scope_codes=(),
+        disable_custom_admin_url=False,
     )
 
 
 class RecordingExec:
-    """Fake `exec_command` that records every call and always succeeds."""
+    """Fake `exec_command` that records every call and always succeeds.
+
+    Returns a parseable `bin/magento info:adminuri` response specifically
+    -- `_resolve_admin_path` now retries on unparseable stdout, not just a
+    raised exception (see its docstring), so a blank stdout for THAT one
+    command would exhaust every retry with a REAL `asyncio.sleep()` in any
+    test that doesn't inject a fake `sleep`, silently costing tens of
+    seconds per test across the whole suite.
+    """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
     async def __call__(self, node_name: str, command: str, **_: Any) -> dict[str, Any]:
         self.calls.append((node_name, command))
+
+        if command == 'bin/magento info:adminuri':
+            return {'stdout': 'Admin URI: /admin\n', 'stderr': '', 'exit_code': 0}
 
         return {'stdout': '', 'stderr': '', 'exit_code': 0}
 
@@ -333,7 +346,12 @@ async def test_it_reports_no_admin_user_credentials_when_the_config_disables_it(
 
 
 class TimeoutRecordingExec:
-    """Fake `exec_command` that records the `timeout` kwarg passed to each call."""
+    """Fake `exec_command` that records the `timeout` kwarg passed to each call.
+
+    Returns a parseable `info:adminuri` response -- see `RecordingExec`'s
+    docstring for why (unparseable stdout is now retry-worthy, not just an
+    exception, and this fake's own test doesn't inject a fake `sleep`).
+    """
 
     def __init__(self) -> None:
         self.timeouts: list[float | None] = []
@@ -342,6 +360,9 @@ class TimeoutRecordingExec:
         self, node_name: str, command: str, *, timeout: float | None = None, **_: Any
     ) -> dict[str, Any]:
         self.timeouts.append(timeout)
+
+        if command == 'bin/magento info:adminuri':
+            return {'stdout': 'Admin URI: /admin\n', 'stderr': '', 'exit_code': 0}
 
         return {'stdout': '', 'stderr': '', 'exit_code': 0}
 
@@ -410,6 +431,7 @@ async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output
         labels=['ticket-123'],
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
+        sanitization_retry_delay_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
