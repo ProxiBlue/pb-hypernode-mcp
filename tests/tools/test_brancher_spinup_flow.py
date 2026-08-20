@@ -12,7 +12,10 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
 from pb_hypernode_mcp.config import Settings
-from pb_hypernode_mcp.sanitization.commands import generate_sanitization_commands
+from pb_hypernode_mcp.sanitization.commands import (
+    generate_sanitization_commands,
+    generate_url_setup_commands,
+)
 from pb_hypernode_mcp.sanitization.config import (
     PiiTableSanitizer,
     SanitizationConfig,
@@ -27,6 +30,7 @@ from pb_hypernode_mcp.tools.brancher_spinup_flow import (
 )
 
 CREATED_NODE_NAME = 'myapp-eph123456'
+CREATED_NODE_HOSTNAME = f'{CREATED_NODE_NAME}.hypernode.io'
 
 
 def make_client(**tokens: str) -> HypernodeApiClient:
@@ -146,6 +150,10 @@ def make_sanitization_config() -> SanitizationConfig:
             table='admin_user',
             set_columns={'password': "'unused-in-this-test'"},
         ),
+        # Keeps tests unrelated to the vhost/base-URL feature itself focused
+        # on sanitization-command counting — dedicated tests below cover the
+        # vhost command explicitly with `vhost_webroot` set.
+        vhost_webroot=None,
     )
 
 
@@ -172,16 +180,20 @@ async def test_it_does_not_report_the_node_as_ready_until_sanitization_has_compl
         exec_command=exec_fn,
     )
 
-    # Reachability probe + exactly 2 sanitization commands must have already
+    # Reachability probe (1) + 3 url-setup commands (2x base_url config:set +
+    # cache:flush, vhost_webroot=None so no vhost command) + 2 sanitization
+    # commands + 1 best-effort admin-path resolve call must have already
     # completed by the time a 'ready' result is produced.
-    assert len(exec_fn.calls) == 3
+    assert len(exec_fn.calls) == 7
     assert result['status'] == 'ready'
 
 
 async def test_it_runs_the_sanitization_command_sequence_exactly_once_per_create() -> None:
     exec_fn = RecordingExec()
     config = make_sanitization_config()
-    expected_commands = generate_sanitization_commands(config)
+    expected_commands = generate_url_setup_commands(
+        CREATED_NODE_HOSTNAME, config
+    ) + generate_sanitization_commands(config)
 
     await spinup_sanitized_brancher_node(
         make_client(),
@@ -191,8 +203,82 @@ async def test_it_runs_the_sanitization_command_sequence_exactly_once_per_create
         exec_command=exec_fn,
     )
 
-    sanitization_calls = [command for _node_name, command in exec_fn.calls[1:]]
+    # calls[0] is the reachability probe, calls[-1] the best-effort
+    # admin-path resolve call -- everything in between is the url-setup +
+    # sanitization command sequence.
+    sanitization_calls = [command for _node_name, command in exec_fn.calls[1:-1]]
     assert sanitization_calls == expected_commands
+
+
+async def test_it_creates_a_vhost_for_the_node_when_the_config_has_a_vhost_webroot() -> None:
+    exec_fn = RecordingExec()
+    config = SanitizationConfig(
+        pii_tables=make_sanitization_config().pii_tables,
+        admin_user_reset=make_sanitization_config().admin_user_reset,
+        vhost_webroot='/data/web/public',
+        vhost_type='magento2',
+    )
+
+    await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+    )
+
+    commands_run = [command for _node_name, command in exec_fn.calls]
+    assert any(
+        'hypernode-manage-vhosts' in command and CREATED_NODE_HOSTNAME in command
+        for command in commands_run
+    )
+
+
+class RespondingExec:
+    """Fake `exec_command` that returns a configured stdout for one specific command."""
+
+    def __init__(self, *, command: str, stdout: str) -> None:
+        self._command = command
+        self._stdout = stdout
+
+    async def __call__(self, node_name: str, command: str, **_: Any) -> dict[str, Any]:
+        if command == self._command:
+            return {'stdout': self._stdout, 'stderr': '', 'exit_code': 0}
+
+        return {'stdout': '', 'stderr': '', 'exit_code': 0}
+
+
+async def test_it_reports_the_admin_url_parsed_from_info_adminuri_output() -> None:
+    exec_fn = RespondingExec(
+        command='bin/magento info:adminuri',
+        stdout='Admin Panel is accessible with /backend-custom\n',
+    )
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+    )
+
+    assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/backend-custom'
+
+
+async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output_is_unparseable() -> (  # noqa: E501
+    None
+):
+    exec_fn = RespondingExec(command='bin/magento info:adminuri', stdout='ok\n')
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+    )
+
+    assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
 
 
 class FailingAfterNExec:
@@ -213,7 +299,9 @@ class FailingAfterNExec:
 
 
 async def test_it_surfaces_a_clear_failure_state_when_sanitization_fails_partway_through() -> None:
-    # call index 0 = reachability probe, index 2 = the 2nd sanitization command
+    # call index 0 = reachability probe, index 2 = the 2nd url-setup command
+    # (base_url secure) -- commands_completed counts within that commands
+    # loop only, so 1 (the 1st url-setup command) succeeded before this fails.
     exec_fn = FailingAfterNExec(fail_at_call_index=2)
     config = make_sanitization_config()
 
@@ -243,8 +331,12 @@ async def test_it_does_not_return_the_nodes_access_url_when_sanitization_has_fai
             exec_command=exec_fn,
         )
 
+    # The structural guarantee is no `access_url` attribute on the exception
+    # -- NOT that the message never contains the substring "hypernode.io" at
+    # all, since a failing url-setup command (e.g. the base_url config:set)
+    # legitimately echoes the hostname it was trying to set as part of
+    # naming which command failed.
     assert not hasattr(exc_info.value, 'access_url')
-    assert 'hypernode.io' not in str(exc_info.value)
 
 
 class AlwaysUnreachableExec:
@@ -567,8 +659,16 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
         'node_name': 'myapp-eph123456',
         'minutes_remaining': None,
         'access_url': 'https://myapp-eph123456.hypernode.io/',
+        'admin_url': 'https://myapp-eph123456.hypernode.io/admin',
+        'admin_username': 'admin',
+        'admin_email': 'admin@example.invalid',
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
-        'sanitization_commands_run': 2,
+        'sanitization_commands_run': 5,
+        'sales_and_customer_data_sanitized': True,
     }
 
 
@@ -595,8 +695,16 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
         'node_name': 'myapp-eph123456',
         'minutes_remaining': None,
         'access_url': 'https://myapp-eph123456.hypernode.io/',
+        'admin_url': 'https://myapp-eph123456.hypernode.io/admin',
+        'admin_username': 'admin',
+        'admin_email': 'admin@example.invalid',
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
-        'sanitization_commands_run': 2,
+        'sanitization_commands_run': 5,
+        'sales_and_customer_data_sanitized': True,
     }
 
     def reject_handler(request: httpx.Request) -> httpx.Response:

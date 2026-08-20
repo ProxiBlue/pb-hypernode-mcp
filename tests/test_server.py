@@ -177,8 +177,16 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
+        'admin_url': 'https://myapp-eph1.hypernode.io/admin',
+        'admin_username': 'admin',
+        'admin_email': 'admin@example.invalid',
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
-        'sanitization_commands_run': 12,
+        'sanitization_commands_run': 16,
+        'sales_and_customer_data_sanitized': True,
     }
 
 
@@ -218,8 +226,16 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
+        'admin_url': 'https://myapp-eph1.hypernode.io/admin',
+        'admin_username': 'admin',
+        'admin_email': 'admin@example.invalid',
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
-        'sanitization_commands_run': 12,
+        'sanitization_commands_run': 16,
+        'sales_and_customer_data_sanitized': True,
     }
 
 
@@ -258,8 +274,16 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
         'access_url': 'https://myapp-eph1.hypernode.io/',
+        'admin_url': 'https://myapp-eph1.hypernode.io/admin',
+        'admin_username': 'admin',
+        'admin_email': 'admin@example.invalid',
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
-        'sanitization_commands_run': 12,
+        'sanitization_commands_run': 16,
+        'sales_and_customer_data_sanitized': True,
     }
 
 

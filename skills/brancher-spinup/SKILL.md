@@ -77,24 +77,41 @@ exposes.
      source for a remaining-minutes figure; do not report this to the user
      as if it were meaningful data, and do not claim to know the app's
      Brancher budget from this field.
-   - `access_url` — the browsable URL for the sanitized node
+   - `access_url` — the browsable site URL for the sanitized node
+   - `admin_url` — the admin login URL, resolved from the node's actual
+     `bin/magento info:adminuri` output (falls back to `/admin` if that
+     couldn't be parsed) — always report this alongside `access_url`, not
+     just the storefront link.
+   - `admin_username` / `admin_email` — the sanitized admin login identity
+     (`admin` / `admin@example.invalid` by default). The live production
+     admin username/email is never present on this node.
+   - `admin_password_note` — always report this verbatim. The admin
+     password was deliberately overwritten with an invalid hash during
+     sanitization, so this note (not a real password) is what tells the
+     user how to actually get in if they need to.
+   - `sales_and_customer_data_sanitized` — always `true` on a successful
+     result (sanitization is mandatory and non-bypassable — if this field
+     is present at all, PII/sales data has already been anonymized).
+     State this back to the user explicitly as confirmation, don't just
+     imply it.
    - `status` — always `"ready"` on success (sanitization already ran)
    - `sanitization_commands_run` — how many sanitization commands were
-     executed against the node before it was reported ready
+     executed against the node before it was reported ready (includes the
+     base-URL/vhost setup commands, not just the PII/gateway ones)
    - `ip_assigned_after_seconds` — how long Hypernode's own provisioning took
      to assign the node a real ip (phase 1 of the reachability wait)
    - `ssh_reachable_after_seconds` — how long SSH then took to answer once
      the ip existed (phase 2)
 
-   Report `node_name`, `access_url`, `status`, and `sanitization_commands_run`
-   back to the user — the sanitization count is the guardrail evidence that
-   this node is safe to hand to a client. Omit `minutes_remaining` from what
-   you tell the user; it carries no real information. When the two phase
-   timings are notably uneven (e.g. most of the wait was IP assignment, or
-   most of it was SSH), mention the split — e.g. "IP assigned after 6 min,
-   SSH reachable 40s after that" — since it gives the user real signal about
-   where the time went, useful if they need to report a slow spin-up back to
-   Hypernode support.
+   Always report back to the user: the site URL (`access_url`), the admin
+   URL (`admin_url`) with its login (`admin_username`/`admin_email` +
+   `admin_password_note`), and an explicit confirmation that sales/customer
+   data was sanitized. Omit `minutes_remaining`; it carries no real
+   information. When the two phase timings are notably uneven (e.g. most of
+   the wait was IP assignment, or most of it was SSH), mention the split —
+   e.g. "IP assigned after 6 min, SSH reachable 40s after that" — since it
+   gives the user real signal about where the time went, useful if they need
+   to report a slow spin-up back to Hypernode support.
 
 5. **Mention `brancher_ssh_info` for direct SSH access.** The URL from step
    4 is enough for browsing, but if the user wants to SSH in directly (to
@@ -166,8 +183,13 @@ User: "Spin up a preview of myapp for ticket-482."
      "node_name": "myapp-eph198234",
      "minutes_remaining": None,
      "access_url": "https://myapp-eph198234.hypernode.io/",
+     "admin_url": "https://myapp-eph198234.hypernode.io/admin",
+     "admin_username": "admin",
+     "admin_email": "admin@example.invalid",
+     "admin_password_note": "Password deliberately invalidated during sanitization -- set a real one with `bin/magento admin:user:create` before logging in.",
      "status": "ready",
-     "sanitization_commands_run": 12,
+     "sanitization_commands_run": 16,
+     "sales_and_customer_data_sanitized": True,
      "ip_assigned_after_seconds": 360,
      "ssh_reachable_after_seconds": 40
    }
@@ -175,8 +197,13 @@ User: "Spin up a preview of myapp for ticket-482."
 2. Report to the user:
    "Preview ready: https://myapp-eph198234.hypernode.io/
     - Node: myapp-eph198234
-    - Sanitization: 12 commands run (PII anonymized, admin credentials
-      reset, payment gateways sandboxed) before this URL was returned.
+    - Admin: https://myapp-eph198234.hypernode.io/admin (username: admin,
+      email: admin@example.invalid — password was deliberately invalidated
+      during sanitization; set a real one with `bin/magento
+      admin:user:create` before logging in)
+    - Sanitization: 16 commands run (base URL + vhost wired to this node,
+      sales/customer PII anonymized, admin credentials reset, payment
+      gateways sandboxed) before this URL was returned.
     - Timing: IP assigned after 6 min, SSH reachable 40s after that.
     - Need to SSH in directly? I can pull connection details via
       brancher_ssh_info."

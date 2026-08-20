@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from pb_hypernode_mcp.sanitization.commands import generate_sanitization_commands
+from pb_hypernode_mcp.sanitization.commands import (
+    generate_sanitization_commands,
+    generate_url_setup_commands,
+)
 from pb_hypernode_mcp.sanitization.config import (
     DEFAULT_MAGENTO_SANITIZATION_CONFIG,
     GatewaySandboxSetting,
@@ -141,6 +144,41 @@ def test_it_generates_commands_to_stub_each_configured_third_party_api_key_to_a_
 
     assert 'bin/magento config:set carriers/shipperhq/api_key sandbox-dummy-key' in commands
     assert 'bin/magento config:set tax/avatax/license_key dummy-license-key' in commands
+
+
+def test_it_generates_commands_to_point_the_nodes_base_url_at_its_own_hostname() -> None:
+    config = _minimal_config()
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert (
+        'bin/magento config:set web/unsecure/base_url '
+        'https://myapp-eph123456.hypernode.io/' in commands
+    )
+    assert (
+        'bin/magento config:set web/secure/base_url '
+        'https://myapp-eph123456.hypernode.io/' in commands
+    )
+    assert 'bin/magento cache:flush' in commands
+
+
+def test_it_creates_a_vhost_for_the_node_when_vhost_webroot_is_configured() -> None:
+    config = _minimal_config(vhost_webroot='/data/web/public', vhost_type='magento2')
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert (
+        "hypernode-manage-vhosts myapp-eph123456.hypernode.io --https --force-https "
+        "--type magento2 --webroot /data/web/public" in commands
+    )
+
+
+def test_it_skips_vhost_creation_when_vhost_webroot_is_not_configured() -> None:
+    config = _minimal_config(vhost_webroot=None)
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert not any('hypernode-manage-vhosts' in cmd for cmd in commands)
 
 
 def test_it_raises_a_clear_error_when_the_per_app_config_is_missing_required_fields() -> None:

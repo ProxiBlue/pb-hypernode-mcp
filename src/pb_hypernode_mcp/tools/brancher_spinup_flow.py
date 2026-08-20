@@ -17,6 +17,7 @@ create a Brancher node that skips sanitization.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -25,7 +26,10 @@ from mcp.server.fastmcp import FastMCP
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
 from pb_hypernode_mcp.config import load_settings
-from pb_hypernode_mcp.sanitization.commands import generate_sanitization_commands
+from pb_hypernode_mcp.sanitization.commands import (
+    generate_sanitization_commands,
+    generate_url_setup_commands,
+)
 from pb_hypernode_mcp.sanitization.config import (
     DEFAULT_MAGENTO_SANITIZATION_CONFIG,
     SanitizationConfig,
@@ -44,6 +48,14 @@ DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS = 10.0
 DEFAULT_REACHABILITY_TIMEOUT_SECONDS = 1200.0
 
 ACCESS_URL_TEMPLATE = 'https://{node_name}.hypernode.io/'
+
+# Real Magento CLI command (`Magento\Backend\Console\Command\InfoAdminUriCommand`)
+# that prints the app's current admin path — used only for reporting, never
+# a sanitization-critical step, so a failure/unexpected-output here falls
+# back to Magento's own out-of-the-box default rather than blocking spin-up.
+ADMIN_URI_COMMAND = 'bin/magento info:adminuri'
+DEFAULT_ADMIN_PATH = '/admin'
+_ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 
 
 class BrancherSpinupError(Exception):
@@ -161,6 +173,24 @@ async def _wait_until_reachable(
             await sleep(poll_interval)
 
 
+async def _resolve_admin_path(node_name: str, *, exec_command: ExecCommandFn) -> str:
+    """Best-effort: parse the app's actual admin path via `bin/magento info:adminuri`.
+
+    Purely informational (never blocks or fails spin-up) — this runs after
+    sanitization has already fully succeeded, so a wrong/missing admin path
+    only means a slightly-off `admin_url` in the report, never a withheld
+    access URL or an unsanitized node.
+    """
+    try:
+        result = await exec_command(node_name, ADMIN_URI_COMMAND)
+    except Exception:
+        return DEFAULT_ADMIN_PATH
+
+    match = _ADMIN_PATH_PATTERN.search(result.get('stdout', ''))
+
+    return match.group(1) if match else DEFAULT_ADMIN_PATH
+
+
 async def spinup_sanitized_brancher_node(
     client: HypernodeApiClient,
     appname: str,
@@ -217,19 +247,39 @@ async def spinup_sanitized_brancher_node(
     )
     ssh_reachable_after_seconds = clock() - ssh_wait_start
 
-    commands = generate_sanitization_commands(sanitization_config)
+    access_url = ACCESS_URL_TEMPLATE.format(node_name=node_name)
+    hostname = f'{node_name}.hypernode.io'
+
+    # URL/vhost setup commands run FIRST and share the exact same
+    # all-must-succeed-or-nothing-is-reported-ready discipline as the PII
+    # sanitization commands below (same loop, same SanitizationFailedError) —
+    # a node whose base URL/vhost never got wired is just as unfit to hand
+    # back as one whose PII was never anonymized.
+    commands = generate_url_setup_commands(
+        hostname, sanitization_config
+    ) + generate_sanitization_commands(sanitization_config)
 
     for index, command in enumerate(commands):
         result = await exec_command(node_name, command)
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
 
+    admin_path = await _resolve_admin_path(node_name, exec_command=exec_command)
+
     return {
         'node_name': node_name,
         'minutes_remaining': created.get('minutes_remaining'),
-        'access_url': ACCESS_URL_TEMPLATE.format(node_name=node_name),
+        'access_url': access_url,
+        'admin_url': f'{access_url.rstrip("/")}{admin_path}',
+        'admin_username': sanitization_config.admin_reset_username,
+        'admin_email': sanitization_config.admin_reset_email,
+        'admin_password_note': (
+            'Password deliberately invalidated during sanitization -- set a real '
+            'one with `bin/magento admin:user:create` before logging in.'
+        ),
         'status': 'ready',
         'sanitization_commands_run': len(commands),
+        'sales_and_customer_data_sanitized': True,
         'ip_assigned_after_seconds': ip_assigned_after_seconds,
         'ssh_reachable_after_seconds': ssh_reachable_after_seconds,
     }

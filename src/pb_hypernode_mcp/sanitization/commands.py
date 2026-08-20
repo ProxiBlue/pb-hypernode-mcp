@@ -18,6 +18,10 @@ from pb_hypernode_mcp.sanitization.config import (
 
 DB_QUERY_COMMAND = 'n98-magerun2 db:query'
 CONFIG_SET_COMMAND = 'bin/magento config:set'
+CACHE_FLUSH_COMMAND = 'bin/magento cache:flush'
+VHOST_COMMAND = 'hypernode-manage-vhosts'
+BASE_URL_UNSECURE_PATH = 'web/unsecure/base_url'
+BASE_URL_SECURE_PATH = 'web/secure/base_url'
 
 
 def _build_update_sql(sanitizer: PiiTableSanitizer) -> str:
@@ -53,6 +57,38 @@ def _build_config_set_command(setting: GatewaySandboxSetting) -> str:
     only ever comes from the hardcoded default config, never external input.
     """
     return f'{CONFIG_SET_COMMAND} {setting.config_path} {shlex.quote(setting.sandbox_value)}'
+
+
+def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> list[str]:
+    """Return commands that point the node's base URL + nginx vhost at its own hostname.
+
+    VERIFIED (2026-08-20) via docs.hypernode.com's "Brancher Install Hook"
+    documentation: a freshly cloned Brancher node keeps the *originating*
+    app's base URL, and no nginx vhost exists at all for the node's own new
+    ephemeral hostname until one is created — browsing it serves nginx's
+    default catch-all page, not the app. This mirrors Hypernode's own
+    documented example install hook almost verbatim (same 4 commands, same
+    order): set both base URLs, flush cache, then create the vhost.
+
+    `hostname` is always `<node_name>.hypernode.io` — trusted, not user
+    input (`node_name` is already `-eph`-pattern-validated by the time this
+    is called) — but still `shlex.quote()`-d as defense in depth alongside
+    the rest of this module's commands.
+    """
+    base_url = f'https://{hostname}/'
+    commands = [
+        f'{CONFIG_SET_COMMAND} {BASE_URL_UNSECURE_PATH} {shlex.quote(base_url)}',
+        f'{CONFIG_SET_COMMAND} {BASE_URL_SECURE_PATH} {shlex.quote(base_url)}',
+        CACHE_FLUSH_COMMAND,
+    ]
+
+    if config.vhost_webroot:
+        commands.append(
+            f'{VHOST_COMMAND} {shlex.quote(hostname)} --https --force-https '
+            f'--type {shlex.quote(config.vhost_type)} --webroot {shlex.quote(config.vhost_webroot)}'
+        )
+
+    return commands
 
 
 def generate_sanitization_commands(config: SanitizationConfig) -> list[str]:

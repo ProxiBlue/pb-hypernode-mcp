@@ -14,6 +14,14 @@ class SanitizationConfigError(ValueError):
     """Raised when a per-app `SanitizationConfig` is missing required fields."""
 
 
+# Single source of truth for the admin login handed back to the caller after
+# spin-up — referenced both by the SQL literal below and by
+# `spinup_sanitized_brancher_node`'s reported `admin_username`/`admin_email`,
+# so the two can never drift apart.
+ADMIN_RESET_USERNAME = 'admin'
+ADMIN_RESET_EMAIL = 'admin@example.invalid'
+
+
 @dataclass(frozen=True)
 class PiiTableSanitizer:
     """Describes an anonymizing `UPDATE` for a single database table.
@@ -44,6 +52,29 @@ class SanitizationConfig:
     admin_user_reset: PiiTableSanitizer | None = None
     gateway_sandbox_settings: tuple[GatewaySandboxSetting, ...] = field(default=())
     api_key_stubs: tuple[GatewaySandboxSetting, ...] = field(default=())
+
+    # Reported back to the caller as `admin_username`/`admin_email` after
+    # spin-up — must match whatever `admin_user_reset` actually sets.
+    admin_reset_username: str = ADMIN_RESET_USERNAME
+    admin_reset_email: str = ADMIN_RESET_EMAIL
+
+    # VERIFIED (2026-08-20) via docs.hypernode.com's own "Brancher Install
+    # Hook" documentation: a freshly cloned Brancher node keeps the
+    # ORIGINATING app's base URL and has no nginx vhost at all for its own
+    # new ephemeral hostname until one is created — browsing a brand new
+    # node serves nginx's default catch-all page, not the app. Hypernode's
+    # documented fix is exactly the 4 commands `generate_url_setup_commands`
+    # below builds: two `config:set` calls for the base URLs, a cache flush,
+    # then `hypernode-manage-vhosts`.
+    #
+    # `/data/web` is a fixed, Hypernode-platform-wide home directory on every
+    # node (not client-specific), so `/data/web/public` is a safe default for
+    # Hypernode's standard single-app Magento 2 layout. A client using
+    # Hypernode's multi-app-per-domain layout (`~/apps/<domain>/current/pub`)
+    # must override this field; set it to None to skip vhost/base-URL setup
+    # entirely.
+    vhost_webroot: str | None = '/data/web/public'
+    vhost_type: str = 'magento2'
 
 
 def validate_config(config: SanitizationConfig) -> None:
@@ -140,8 +171,8 @@ DEFAULT_MAGENTO_SANITIZATION_CONFIG = SanitizationConfig(
     admin_user_reset=PiiTableSanitizer(
         table='admin_user',
         set_columns={
-            'username': "'admin'",
-            'email': "'admin@example.invalid'",
+            'username': f"'{ADMIN_RESET_USERNAME}'",
+            'email': f"'{ADMIN_RESET_EMAIL}'",
             # Magento password hashes use the `<sha256-hash>:<salt>:1` format
             # (version 1, SHA-256) — this placeholder is NOT a valid hash for any
             # real password; it deliberately locks form-based admin login until a
