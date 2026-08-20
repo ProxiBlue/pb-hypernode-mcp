@@ -75,11 +75,20 @@ def test_it_declares_all_three_skills_in_the_plugin_manifest() -> None:
 
 
 def test_it_documents_required_environment_variables_in_the_manifest_or_install_docs() -> None:
+    """`HYPERNODE_API_TOKENS` is documented in the README, not via a plugin
+    manifest `userConfig` prompt.
+
+    A `userConfig` field was tried and removed (2026-08-20): `Settings` in
+    `config.py` reads the fixed env var name `HYPERNODE_API_TOKENS` via
+    pydantic-settings' default field-name mapping — nothing in the code ever
+    consulted a user-configurable env-var-name, so the install-time prompt
+    it produced was pure dead weight that confused installers into thinking
+    "just save" persisted something.
+    """
     plugin_manifest = _load_json(REPO_ROOT / '.claude-plugin' / 'plugin.json')
     readme = (REPO_ROOT / 'README.md').read_text()
 
-    user_config: dict[str, Any] = plugin_manifest['userConfig']
-    assert 'HYPERNODE_API_TOKENS' in user_config['hypernode_api_tokens_env']['default']
+    assert 'userConfig' not in plugin_manifest
 
     assert 'HYPERNODE_API_TOKENS' in readme
     assert 'HYPERNODE_APP_ALLOWLIST' not in readme
