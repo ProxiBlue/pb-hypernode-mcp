@@ -96,7 +96,7 @@ tests/                    automated test suite
 
 - A Hypernode account on a **Falcons** plan, with an API token from the Control Panel (Brancher is a Falcons-only feature).
 - **`allow_api_token_usage` enabled on the app.** Real accounts default this setting to `false`. Hypernode 403s any Brancher/financial API call — including `brancher_create` — until an owner/admin explicitly turns on "API token usage" for the app in the Control Panel (Configuration -> Settings). A 403 whose message mentions the "financial nature of the command" means this setting is off — it is not a bug in this plugin.
-- The SSH key you already use to reach your Hypernode — nothing extra to set up, Brancher preview nodes inherit access automatically.
+- SSH access to the Hypernode account's `app` user resolvable with **no explicit `-i` flag** — the plugin shells out to plain `ssh app@<node>.hypernode.io`/`rsync`, so whichever key `ssh` picks by default (agent identities, `~/.ssh/id_*`, or an `~/.ssh/config` match) must already be the one registered with your Hypernode account. If your `~/.ssh/config` only has per-app aliases (e.g. `Host hypernode_myapp`) rather than a `Host *.hypernode.io` wildcard, Brancher's generated hostnames (`<appname>-eph<id>.hypernode.io`) won't match any of them and ssh silently falls back to a key Hypernode doesn't recognize — see [Troubleshooting](#troubleshooting).
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) installed on the machine running Claude Code (Claude Code plugins are just code — this is the runtime they need).
 
 ## MCP tools
@@ -164,6 +164,21 @@ This design was checked by a 3-specialist security review before release (static
   - **`-eph<id>` suffix charset**: lowercase-alphanumeric, not digit-only — both a real account's node (`ppsdev-ephp8b5c2`) and the official client library's own examples (`yourappname-ephoj82yb`) show alphanumeric suffixes.
 - **Brancher/financial API calls require `allow_api_token_usage: true`.** This is an account-level setting (Hypernode Control Panel -> Configuration -> Settings, owner/admin only), not a code path in this plugin — see [Requirements](#requirements).
 - **Playwright test offloading not yet built.** Running the functional test suite against a Brancher node instead of local/CI is tracked separately — see [ProxiBlue/pb-hypernode-mcp#1](../../issues) or the originating design ticket.
+
+## Troubleshooting
+
+- **`NodeUnreachableTimeoutError` even though the node IS actually reachable (verified 2026-08-20).** If a manual `ssh app@<node>.hypernode.io` works fine but `brancher_create` still times out waiting on SSH, suspect an **SSH key mismatch**, not a Hypernode infra problem. `brancher_exec`/`brancher_put` shell out to plain `ssh`/`rsync` with no `-i` flag (see [Requirements](#requirements)) — they rely entirely on whichever key `ssh` picks by its own default resolution. Two common causes:
+  - Your `~/.ssh/config` only defines per-app aliases (`Host hypernode_myapp`, `Host hypernode_myappdev`, ...) rather than a wildcard. Those aliases only match when you literally type `ssh hypernode_myapp` — they do **not** match the real generated hostname `myapp-eph<id>.hypernode.io` that Brancher nodes actually use, so `ssh` falls through to your default identity instead, which may not be the key registered with your Hypernode account.
+  - Fix: add a wildcard block to `~/.ssh/config` so it matches every Brancher-generated hostname automatically, using whichever key is actually registered with your Hypernode account (Control Panel -> Configuration -> SSH keys):
+    ```
+    Host *.hypernode.io
+        User app
+        IdentityFile ~/.ssh/your_hypernode_key
+        IdentitiesOnly yes
+    ```
+  - To confirm this is the actual cause before editing anything: `brancher_list` the stuck node to get its `ip`/hostname, then run `ssh -v app@<hostname>.hypernode.io echo ok` by hand. `Connection refused` or a hang mid-negotiation is genuine Hypernode-side node instability (see the `NodeIpNeverAssignedError`/`NodeUnreachableTimeoutError` distinction in [Limitations](#limitations-v1)); an immediate `Permission denied (publickey,password)` with no `-i` flag confirms it's a local key-selection issue, not the node.
+- **A brand new node serves nginx's default page, not your app, even after `brancher_create` reports `status: "ready"`.** This should no longer happen as of v0.3.0 — `brancher_create` now runs Hypernode's own documented base-URL/vhost setup (see the Safety guardrails section) as part of the mandatory sanitization sequence. If you still see this on a current version, check the node's `sanitization_commands_run` count in the result — a low/unexpected count together with a `SanitizationFailedError` means the vhost step itself failed (commonly: `SanitizationConfig.vhost_webroot` doesn't match your app's actual deploy layout — see the field's docstring in `sanitization/config.py`).
+- **`/plugin marketplace update` reports success but nothing actually changed.** Claude Code compares the `version` field in `plugin.json`, not the git commit — moving the `latest` tag to a new commit without bumping `version` silently no-ops for anyone already installed. If you maintain a fork, always bump both `pyproject.toml` and `.claude-plugin/plugin.json` before moving tags (see [Cutting a release](#cutting-a-release)).
 
 ## Development
 
