@@ -180,11 +180,12 @@ async def test_it_does_not_report_the_node_as_ready_until_sanitization_has_compl
         exec_command=exec_fn,
     )
 
-    # Reachability probe (1) + 3 url-setup commands (2x base_url config:set +
-    # cache:flush, vhost_webroot=None so no vhost command) + 2 sanitization
-    # commands + 1 best-effort admin-path resolve call must have already
-    # completed by the time a 'ready' result is produced.
-    assert len(exec_fn.calls) == 7
+    # Reachability probe (1) + 5 url-setup commands (2x default-scope
+    # base_url config:set + 2x website-scope base_url config:set for the
+    # 'base' website + cache:flush, vhost_webroot=None so no vhost command)
+    # + 2 sanitization commands + 1 best-effort admin-path resolve call must
+    # have already completed by the time a 'ready' result is produced.
+    assert len(exec_fn.calls) == 9
     assert result['status'] == 'ready'
 
 
@@ -787,7 +788,7 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
             'one with `bin/magento admin:user:create` before logging in.'
         ),
         'status': 'ready',
-        'sanitization_commands_run': 5,
+        'sanitization_commands_run': 7,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -823,7 +824,7 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
             'one with `bin/magento admin:user:create` before logging in.'
         ),
         'status': 'ready',
-        'sanitization_commands_run': 5,
+        'sanitization_commands_run': 7,
         'sales_and_customer_data_sanitized': True,
     }
 

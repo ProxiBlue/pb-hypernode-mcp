@@ -185,7 +185,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
             'one with `bin/magento admin:user:create` before logging in.'
         ),
         'status': 'ready',
-        'sanitization_commands_run': 16,
+        'sanitization_commands_run': 18,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -234,7 +234,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
             'one with `bin/magento admin:user:create` before logging in.'
         ),
         'status': 'ready',
-        'sanitization_commands_run': 16,
+        'sanitization_commands_run': 18,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -282,7 +282,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
             'one with `bin/magento admin:user:create` before logging in.'
         ),
         'status': 'ready',
-        'sanitization_commands_run': 16,
+        'sanitization_commands_run': 18,
         'sales_and_customer_data_sanitized': True,
     }
 

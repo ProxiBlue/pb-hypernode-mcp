@@ -103,9 +103,12 @@ def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> li
     documentation: a freshly cloned Brancher node keeps the *originating*
     app's base URL, and no nginx vhost exists at all for the node's own new
     ephemeral hostname until one is created — browsing it serves nginx's
-    default catch-all page, not the app. This mirrors Hypernode's own
-    documented example install hook almost verbatim (same 4 commands, same
-    order): set both base URLs, flush cache, then create the vhost.
+    default catch-all page, not the app. Also VERIFIED live: the default-
+    scope base URL alone isn't enough — a real site kept 301-redirecting
+    back to the old domain via a website-scoped `env.php` override that
+    takes precedence (see `base_url_website_scope_codes`). Mirrors
+    Hypernode's own documented example install hook (set base URLs, flush
+    cache, then create the vhost), extended with the website-scope pass.
 
     `hostname` is always `<node_name>.hypernode.io` — trusted, not user
     input (`node_name` is already `-eph`-pattern-validated by the time this
@@ -129,8 +132,24 @@ def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> li
             config,
             f'{CONFIG_SET_COMMAND} --lock-env {BASE_URL_SECURE_PATH} {shlex.quote(base_url)}',
         ),
-        _with_magento_root(config, CACHE_FLUSH_COMMAND),
     ]
+
+    # VERIFIED (2026-08-20): the default-scope writes above are NOT enough
+    # on their own -- a live site kept 301-redirecting back to the
+    # originating domain because app/etc/env.php had a SEPARATE
+    # website-scoped base_url override that wins over the default-scope
+    # value for any request resolving through that website.
+    for scope_code in config.base_url_website_scope_codes:
+        for path in (BASE_URL_UNSECURE_PATH, BASE_URL_SECURE_PATH):
+            commands.append(
+                _with_magento_root(
+                    config,
+                    f'{CONFIG_SET_COMMAND} --lock-env --scope=websites '
+                    f'--scope-code={shlex.quote(scope_code)} {path} {shlex.quote(base_url)}',
+                )
+            )
+
+    commands.append(_with_magento_root(config, CACHE_FLUSH_COMMAND))
 
     if config.vhost_webroot:
         # NOT wrapped in `_with_magento_root` -- `hypernode-manage-vhosts` is

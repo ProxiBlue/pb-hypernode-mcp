@@ -102,6 +102,19 @@ class SanitizationConfig:
     # using Hypernode Deploy, where `bin/magento` sits directly at $HOME.
     magento_root: str = 'current_root'
 
+    # VERIFIED (2026-08-20) against a real Brancher node: setting base_url
+    # at the default scope was NOT enough -- the live site still 301-
+    # redirected back to the originating app's domain. `app/etc/env.php`
+    # had a SEPARATE `websites.base.web.{secure,unsecure}.base_url`
+    # override still pointing at the old domain, which wins over the
+    # default-scope value for any request resolving through that website.
+    # 'base' is Magento's own genuine default website code (every stock
+    # install has it, not something a client customizes at that level), so
+    # it's a safe default to always also override -- NOT a guess specific
+    # to this account. A client with additional non-default website codes
+    # must extend this tuple; empty tuple skips website-scope overrides.
+    base_url_website_scope_codes: tuple[str, ...] = ('base',)
+
 
 def validate_config(config: SanitizationConfig) -> None:
     """Raise `SanitizationConfigError` if `config` is missing required fields.

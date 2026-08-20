@@ -263,6 +263,34 @@ def test_it_generates_commands_to_point_the_nodes_base_url_at_its_own_hostname()
     assert 'cd current_root && bin/magento cache:flush' in commands
 
 
+def test_it_also_overrides_base_url_at_each_configured_website_scope() -> None:
+    """VERIFIED (2026-08-20) against a real Brancher node: the default-scope
+    base_url alone wasn't enough -- the live site kept 301-redirecting back
+    to the originating domain via a website-scoped env.php override that
+    takes precedence for any request resolving through that website."""
+    config = _minimal_config(base_url_website_scope_codes=('base',))
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert (
+        'cd current_root && bin/magento config:set --lock-env --scope=websites '
+        '--scope-code=base web/unsecure/base_url https://myapp-eph123456.hypernode.io/'
+        in commands
+    )
+    assert (
+        'cd current_root && bin/magento config:set --lock-env --scope=websites '
+        '--scope-code=base web/secure/base_url https://myapp-eph123456.hypernode.io/' in commands
+    )
+
+
+def test_it_skips_website_scope_base_url_overrides_when_no_scope_codes_are_configured() -> None:
+    config = _minimal_config(base_url_website_scope_codes=())
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert not any('--scope=websites' in cmd for cmd in commands)
+
+
 def test_it_creates_a_vhost_for_the_node_when_vhost_webroot_is_configured() -> None:
     config = _minimal_config(vhost_webroot='/data/web/public', vhost_type='magento2')
 
