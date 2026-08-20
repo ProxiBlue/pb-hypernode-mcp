@@ -173,6 +173,7 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
     assert isinstance(result, dict)
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
+    assert result.pop('preview_basic_auth_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -184,8 +185,9 @@ async def test_it_exposes_brancher_create_as_a_callable_mcp_tool_on_the_server(
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 18,
+        'sanitization_commands_run': 20,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -222,6 +224,7 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
     assert isinstance(result, dict)
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
+    assert result.pop('preview_basic_auth_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -233,8 +236,9 @@ async def test_it_does_not_expose_a_way_to_create_a_brancher_node_that_skips_san
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 18,
+        'sanitization_commands_run': 20,
         'sales_and_customer_data_sanitized': True,
     }
 
@@ -270,6 +274,7 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
     assert isinstance(result, dict)
     assert result.pop('ip_assigned_after_seconds') >= 0
     assert result.pop('ssh_reachable_after_seconds') >= 0
+    assert result.pop('preview_basic_auth_password')
     assert result == {
         'node_name': 'myapp-eph1',
         'minutes_remaining': None,
@@ -281,8 +286,9 @@ async def test_it_exposes_exactly_one_node_creation_mcp_tool_and_that_tool_alway
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': 'preview',
         'status': 'ready',
-        'sanitization_commands_run': 18,
+        'sanitization_commands_run': 20,
         'sales_and_customer_data_sanitized': True,
     }
 

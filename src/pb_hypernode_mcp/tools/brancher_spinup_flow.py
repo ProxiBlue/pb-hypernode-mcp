@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import secrets
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -42,6 +43,16 @@ ExecCommandFn = Callable[..., Awaitable[dict[str, Any]]]
 SleepFn = Callable[[float], Awaitable[None]]
 ClockFn = Callable[[], float]
 ClientFactory = Callable[[], HypernodeApiClient]
+PasswordGeneratorFn = Callable[[], str]
+
+
+def _default_generate_password() -> str:
+    """Generate a fresh, random per-node Basic Auth password.
+
+    `secrets.token_urlsafe` (not `random`/`uuid`) -- cryptographically
+    secure, matching the security-critical nature of what this gates.
+    """
+    return secrets.token_urlsafe(16)
 
 DEFAULT_READY_PROBE_COMMAND = 'echo ready'
 DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS = 10.0
@@ -278,6 +289,7 @@ async def spinup_sanitized_brancher_node(
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
+    generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> dict[str, Any]:
@@ -326,13 +338,19 @@ async def spinup_sanitized_brancher_node(
     access_url = ACCESS_URL_TEMPLATE.format(node_name=node_name)
     hostname = f'{node_name}.hypernode.io'
 
+    # Generated even when Basic Auth is disabled (`generate_password` is
+    # cheap and `generate_url_setup_commands` simply ignores it if
+    # `sanitization_config.basic_auth_username` is unset) -- keeps this
+    # call site simple rather than conditionally skipping generation.
+    basic_auth_password = generate_password()
+
     # URL/vhost setup commands run FIRST and share the exact same
     # all-must-succeed-or-nothing-is-reported-ready discipline as the PII
     # sanitization commands below (same loop, same SanitizationFailedError) —
     # a node whose base URL/vhost never got wired is just as unfit to hand
     # back as one whose PII was never anonymized.
     commands = generate_url_setup_commands(
-        hostname, sanitization_config
+        hostname, sanitization_config, basic_auth_password
     ) + generate_sanitization_commands(sanitization_config)
 
     for index, command in enumerate(commands):
@@ -367,6 +385,10 @@ async def spinup_sanitized_brancher_node(
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': sanitization_config.basic_auth_username,
+        'preview_basic_auth_password': (
+            basic_auth_password if sanitization_config.basic_auth_username else None
+        ),
         'status': 'ready',
         'sanitization_commands_run': len(commands),
         'sales_and_customer_data_sanitized': True,
@@ -387,6 +409,7 @@ def register(
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
+    generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> None:
@@ -432,6 +455,7 @@ def register(
             sanitization_command_timeout=sanitization_command_timeout,
             sanitization_command_retries=sanitization_command_retries,
             sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
+            generate_password=generate_password,
             sleep=sleep,
             clock=clock,
         )

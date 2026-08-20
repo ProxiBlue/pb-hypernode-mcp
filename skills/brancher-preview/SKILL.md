@@ -21,7 +21,9 @@ minutes. This skill does not delete the node itself — that is
    (never guess an `appname`; if exactly one app is configured, proceed with
    it and just note that). Then continue the `brancher-spinup` flow (ask for
    a label if missing, call `brancher_create`, report `node_name`,
-   `access_url`, `admin_url` with its login (`admin_username`/`admin_email`
+   `access_url` with its Basic Auth login (`preview_basic_auth_username`/
+   `preview_basic_auth_password`, if set — without it the URL alone won't
+   get anyone in), `admin_url` with its login (`admin_username`/`admin_email`
    + `admin_password_note`), `status`, `sanitization_commands_run`, and an
    explicit `sales_and_customer_data_sanitized` confirmation —
    `minutes_remaining` is always `None`; see the `brancher-spinup` skill for
@@ -93,6 +95,14 @@ minutes. This skill does not delete the node itself — that is
    session, say so plainly and give the user the `access_url` to check
    manually instead of failing silently.
 
+   If `preview_basic_auth_username` is set, the browser will hit an HTTP
+   Basic Auth challenge before it ever reaches the app. Most browser MCP
+   tools have no built-in way to answer that prompt — the reliable
+   workaround is embedding the credentials directly in the URL
+   (`https://<username>:<password>@<host>/...`) when navigating, rather
+   than the bare `access_url`. If the tool still can't get past it, say so
+   plainly and give the user the URL + credentials to check manually.
+
 5. **Remind the user the node is still running.** Always end the loop with
    an explicit reminder — never let the conversation move on silently. Use
    `cleanup_reminder(node_name, access_url)` from `preview_logic.py` as the
@@ -116,8 +126,10 @@ User: "Spin up a preview of myapp for ticket-482, push my local branch's
 1. brancher_create(appname="myapp", labels=["ticket-482"]) ->
    { node_name: "myapp-eph198234", access_url: "https://myapp-eph198234.hypernode.io/",
      admin_url: "https://myapp-eph198234.hypernode.io/admin", admin_username: "admin",
-     admin_email: "admin@example.invalid", minutes_remaining: None, status: "ready",
-     sanitization_commands_run: 16, sales_and_customer_data_sanitized: True,
+     admin_email: "admin@example.invalid",
+     preview_basic_auth_username: "preview", preview_basic_auth_password: "Kj3n_9dQpXm2vLwZ",
+     minutes_remaining: None, status: "ready",
+     sanitization_commands_run: 20, sales_and_customer_data_sanitized: True,
      ip_assigned_after_seconds: 360, ssh_reachable_after_seconds: 40 }
 
 2. brancher_put(node_name="myapp-eph198234",

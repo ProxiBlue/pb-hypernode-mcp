@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pb_hypernode_mcp.sanitization.commands import (
+    generate_basic_auth_gate_commands,
     generate_sanitization_commands,
     generate_url_setup_commands,
 )
@@ -289,6 +290,55 @@ def test_it_skips_website_scope_base_url_overrides_when_no_scope_codes_are_confi
     commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
 
     assert not any('--scope=websites' in cmd for cmd in commands)
+
+
+def test_it_creates_an_htpasswd_file_and_domain_scoped_basic_auth_rule_when_configured() -> None:
+    """VERIFIED (2026-08-20) via docs.hypernode.com's "How to Protect Your
+    Magento Store With a Password in Nginx": /data/web/nginx/ is
+    Hypernode's own documented self-service nginx-include directory."""
+    config = _minimal_config(basic_auth_username='preview')
+
+    commands = generate_basic_auth_gate_commands(
+        'myapp-eph123456.hypernode.io', config, 'sekret-pw'
+    )
+
+    assert 'htpasswd -cb /data/web/nginx/htpasswd preview sekret-pw' in commands
+    snippet_command = next(cmd for cmd in commands if 'server.basicauth' in cmd)
+    assert 'cat > /data/web/nginx/server.basicauth' in snippet_command
+    assert "<< 'PBHTPASSWDEOF'" in snippet_command
+    assert 'if ($http_host = "myapp-eph123456.hypernode.io")' in snippet_command
+    assert 'if ($http_host != "myapp-eph123456.hypernode.io")' in snippet_command
+    assert 'auth_basic_user_file /data/web/nginx/htpasswd;' in snippet_command
+
+
+def test_it_returns_no_basic_auth_commands_when_username_is_not_configured() -> None:
+    config = _minimal_config(basic_auth_username=None)
+
+    commands = generate_basic_auth_gate_commands('myapp-eph123456.hypernode.io', config, 'pw')
+
+    assert commands == []
+
+
+def test_url_setup_includes_basic_auth_commands_before_the_vhost_command_when_password_given() -> (
+    None
+):
+    config = _minimal_config(basic_auth_username='preview', vhost_webroot='/data/web/public')
+
+    commands = generate_url_setup_commands(
+        'myapp-eph123456.hypernode.io', config, basic_auth_password='sekret-pw'
+    )
+
+    htpasswd_index = next(i for i, c in enumerate(commands) if c.startswith('htpasswd'))
+    vhost_index = next(i for i, c in enumerate(commands) if c.startswith('hypernode-manage-vhosts'))
+    assert htpasswd_index < vhost_index
+
+
+def test_url_setup_omits_basic_auth_commands_when_no_password_is_given() -> None:
+    config = _minimal_config(basic_auth_username='preview')
+
+    commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
+
+    assert not any(c.startswith('htpasswd') for c in commands)
 
 
 def test_it_creates_a_vhost_for_the_node_when_vhost_webroot_is_configured() -> None:

@@ -150,10 +150,11 @@ def make_sanitization_config() -> SanitizationConfig:
             table='admin_user',
             set_columns={'password': "'unused-in-this-test'"},
         ),
-        # Keeps tests unrelated to the vhost/base-URL feature itself focused
-        # on sanitization-command counting — dedicated tests below cover the
-        # vhost command explicitly with `vhost_webroot` set.
+        # Keeps tests unrelated to the vhost/base-URL/basic-auth features
+        # themselves focused on sanitization-command counting — dedicated
+        # tests below cover each explicitly with the relevant field set.
         vhost_webroot=None,
+        basic_auth_username=None,
     )
 
 
@@ -233,6 +234,50 @@ async def test_it_creates_a_vhost_for_the_node_when_the_config_has_a_vhost_webro
         'hypernode-manage-vhosts' in command and CREATED_NODE_HOSTNAME in command
         for command in commands_run
     )
+
+
+async def test_it_installs_basic_auth_using_the_injected_generated_password_and_reports_it() -> (
+    None
+):
+    exec_fn = RecordingExec()
+    config = SanitizationConfig(
+        pii_tables=make_sanitization_config().pii_tables,
+        admin_user_reset=make_sanitization_config().admin_user_reset,
+        basic_auth_username='preview',
+    )
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+        generate_password=lambda: 'fixed-test-password',
+    )
+
+    commands_run = [command for _node_name, command in exec_fn.calls]
+    assert any(
+        command == 'htpasswd -cb /data/web/nginx/htpasswd preview fixed-test-password'
+        for command in commands_run
+    )
+    assert result['preview_basic_auth_username'] == 'preview'
+    assert result['preview_basic_auth_password'] == 'fixed-test-password'
+
+
+async def test_it_reports_no_basic_auth_credentials_when_the_config_disables_it() -> None:
+    exec_fn = RecordingExec()
+    config = make_sanitization_config()  # basic_auth_username=None
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+    )
+
+    assert result['preview_basic_auth_username'] is None
+    assert result['preview_basic_auth_password'] is None
 
 
 class TimeoutRecordingExec:
@@ -823,6 +868,8 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': None,
+        'preview_basic_auth_password': None,
         'status': 'ready',
         'sanitization_commands_run': 7,
         'sales_and_customer_data_sanitized': True,
@@ -859,6 +906,8 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
             'Password deliberately invalidated during sanitization -- set a real '
             'one with `bin/magento admin:user:create` before logging in.'
         ),
+        'preview_basic_auth_username': None,
+        'preview_basic_auth_password': None,
         'status': 'ready',
         'sanitization_commands_run': 7,
         'sales_and_customer_data_sanitized': True,

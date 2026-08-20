@@ -23,6 +23,13 @@ VHOST_COMMAND = 'hypernode-manage-vhosts'
 BASE_URL_UNSECURE_PATH = 'web/unsecure/base_url'
 BASE_URL_SECURE_PATH = 'web/secure/base_url'
 
+# VERIFIED (2026-08-20) via docs.hypernode.com's "How to Protect Your
+# Magento Store With a Password in Nginx": app-owned (under $HOME),
+# Hypernode's own nginx generation automatically includes files placed
+# here for every vhost -- unlike `/etc/nginx/app/<hostname>/`, which is
+# root-owned and has no self-service write path at all.
+NGINX_INCLUDE_DIR = '/data/web/nginx'
+
 
 def _build_update_sql(sanitizer: PiiTableSanitizer) -> str:
     """Build a single anonymizing `UPDATE` statement, wrapped for shell execution.
@@ -96,7 +103,89 @@ def _with_magento_root(config: SanitizationConfig, command: str) -> str:
     return f'cd {shlex.quote(config.magento_root)} && {command}'
 
 
-def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> list[str]:
+def _build_htpasswd_command(username: str, password: str) -> str:
+    """Create/overwrite the node's htpasswd file via `htpasswd -cb`.
+
+    VERIFIED (2026-08-20) via docs.hypernode.com's "How to Protect Your
+    Magento Store With a Password in Nginx": `/data/web/nginx/` is
+    Hypernode's own documented self-service nginx-include directory --
+    app-owned (it's under $HOME, unlike `/etc/nginx/app/<hostname>/`,
+    which this session confirmed is root-owned and has no self-service
+    write path at all). `-b` supplies the password non-interactively
+    (`htpasswd` normally prompts); `-c` creates/overwrites the file, which
+    is correct here since each Brancher node gets a freshly generated
+    password and this file should never carry a stale one forward.
+    """
+    return (
+        f'htpasswd -cb {NGINX_INCLUDE_DIR}/htpasswd '
+        f'{shlex.quote(username)} {shlex.quote(password)}'
+    )
+
+
+def _build_basic_auth_nginx_snippet(hostname: str) -> str:
+    """Nginx snippet restricting Basic Auth to exactly this node's own hostname.
+
+    Mirrors docs.hypernode.com's "Restricting Access to a Specific Domain"
+    example: keys off `$http_host` so it protects only THIS Brancher node's
+    ephemeral hostname, not any other vhost that might exist on the same
+    underlying filesystem (e.g. a stale leftover vhost from a prior
+    Brancher run on the same box, seen earlier this session).
+    """
+    return (
+        f'if ($http_host = "{hostname}") {{ set $pb_auth_basic "Restricted preview"; }}\n'
+        f'if ($http_host != "{hostname}") {{ set $pb_auth_basic off; }}\n'
+        'auth_basic $pb_auth_basic;\n'
+        f'auth_basic_user_file {NGINX_INCLUDE_DIR}/htpasswd;\n'
+    )
+
+
+def generate_basic_auth_gate_commands(
+    hostname: str, config: SanitizationConfig, password: str
+) -> list[str]:
+    """Build the commands that install HTTP Basic Auth for this node's hostname.
+
+    VERIFIED (2026-08-20) against a real Brancher node: the parent app's
+    own vhost has Basic Auth active, but a vhost freshly created by
+    `hypernode-manage-vhosts` does NOT inherit it. `hypernode-manage-vhosts
+    --help` has no such flag, `hypernode-systemctl settings` has no
+    basic-auth key, and `/etc/nginx/app/<hostname>/` is root-owned -- see
+    `SanitizationConfig.basic_auth_username`'s docstring. This is NOT a
+    workaround, it's Hypernode's own documented self-service mechanism for
+    exactly this (see `_build_htpasswd_command`'s docstring for the source).
+
+    Runs BEFORE `hypernode-manage-vhosts` creates the vhost in
+    `generate_url_setup_commands` below, so nginx's config generation for
+    the new vhost picks up the include from its very first write rather
+    than needing a second regeneration pass.
+
+    Uses a quoted heredoc terminator (`'PBHTPASSWDEOF'`) to write
+    `server.basicauth` -- required so the shell does NOT try to expand
+    `$http_host`/`$pb_auth_basic` as its OWN variables (they're nginx
+    variables, meaningless to the shell, and would silently expand to
+    empty strings otherwise, corrupting the auth rule).
+
+    Returns `[]` if `config.basic_auth_username` is unset (feature
+    disabled).
+    """
+    if not config.basic_auth_username:
+        return []
+
+    snippet = _build_basic_auth_nginx_snippet(hostname)
+    write_snippet_command = (
+        f'cat > {NGINX_INCLUDE_DIR}/server.basicauth << \'PBHTPASSWDEOF\'\n'
+        f'{snippet}'
+        'PBHTPASSWDEOF'
+    )
+
+    return [
+        _build_htpasswd_command(config.basic_auth_username, password),
+        write_snippet_command,
+    ]
+
+
+def generate_url_setup_commands(
+    hostname: str, config: SanitizationConfig, basic_auth_password: str | None = None
+) -> list[str]:
     """Return commands that point the node's base URL + nginx vhost at its own hostname.
 
     VERIFIED (2026-08-20) via docs.hypernode.com's "Brancher Install Hook"
@@ -150,6 +239,16 @@ def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> li
             )
 
     commands.append(_with_magento_root(config, CACHE_FLUSH_COMMAND))
+
+    # Runs BEFORE the vhost is created below, so nginx's config generation
+    # for the new vhost picks up the Basic Auth include from its very first
+    # write. See `generate_basic_auth_gate_commands`'s docstring for why
+    # this exists at all (Hypernode's own documented self-service
+    # mechanism -- not something `hypernode-manage-vhosts` sets up itself).
+    if config.basic_auth_username and basic_auth_password:
+        commands.extend(
+            generate_basic_auth_gate_commands(hostname, config, basic_auth_password)
+        )
 
     if config.vhost_webroot:
         # NOT wrapped in `_with_magento_root` -- `hypernode-manage-vhosts` is

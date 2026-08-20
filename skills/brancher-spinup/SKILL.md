@@ -94,6 +94,14 @@ exposes.
      is present at all, PII/sales data has already been anonymized).
      State this back to the user explicitly as confirmation, don't just
      imply it.
+   - `preview_basic_auth_username` / `preview_basic_auth_password` — HTTP
+     Basic Auth gate on the node's own hostname, `None`/`None` if the
+     server was configured with `basic_auth_username = None`. When set,
+     this is the ONLY thing standing between the sanitized-but-still-real
+     storefront/admin and anyone who gets the URL — always report both
+     values verbatim alongside the URLs, never omit them as if the login
+     were optional. The password is freshly random every spin-up, never a
+     fixed/shared one.
    - `status` — always `"ready"` on success (sanitization already ran)
    - `sanitization_commands_run` — how many sanitization commands were
      executed against the node before it was reported ready (includes the
@@ -103,7 +111,9 @@ exposes.
    - `ssh_reachable_after_seconds` — how long SSH then took to answer once
      the ip existed (phase 2)
 
-   Always report back to the user: the site URL (`access_url`), the admin
+   Always report back to the user: the site URL (`access_url`) — and its
+   Basic Auth login (`preview_basic_auth_username`/`preview_basic_auth_password`)
+   if set, since without it the URL alone won't get anyone in — the admin
    URL (`admin_url`) with its login (`admin_username`/`admin_email` +
    `admin_password_note`), and an explicit confirmation that sales/customer
    data was sanitized. Omit `minutes_remaining`; it carries no real
@@ -187,8 +197,10 @@ User: "Spin up a preview of myapp for ticket-482."
      "admin_username": "admin",
      "admin_email": "admin@example.invalid",
      "admin_password_note": "Password deliberately invalidated during sanitization -- set a real one with `bin/magento admin:user:create` before logging in.",
+     "preview_basic_auth_username": "preview",
+     "preview_basic_auth_password": "Kj3n_9dQpXm2vLwZ",
      "status": "ready",
-     "sanitization_commands_run": 16,
+     "sanitization_commands_run": 20,
      "sales_and_customer_data_sanitized": True,
      "ip_assigned_after_seconds": 360,
      "ssh_reachable_after_seconds": 40
@@ -196,14 +208,16 @@ User: "Spin up a preview of myapp for ticket-482."
 
 2. Report to the user:
    "Preview ready: https://myapp-eph198234.hypernode.io/
+    - Login required: username `preview`, password `Kj3n_9dQpXm2vLwZ`
+      (fresh, random every spin-up — not the URL alone).
     - Node: myapp-eph198234
     - Admin: https://myapp-eph198234.hypernode.io/admin (username: admin,
       email: admin@example.invalid — password was deliberately invalidated
       during sanitization; set a real one with `bin/magento
       admin:user:create` before logging in)
-    - Sanitization: 16 commands run (base URL + vhost wired to this node,
-      sales/customer PII anonymized, admin credentials reset, payment
-      gateways sandboxed) before this URL was returned.
+    - Sanitization: 20 commands run (base URL + vhost + Basic Auth wired to
+      this node, sales/customer PII anonymized, admin credentials reset,
+      payment gateways sandboxed) before this URL was returned.
     - Timing: IP assigned after 6 min, SSH reachable 40s after that.
     - Need to SSH in directly? I can pull connection details via
       brancher_ssh_info."

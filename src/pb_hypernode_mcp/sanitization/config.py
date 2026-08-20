@@ -102,6 +102,25 @@ class SanitizationConfig:
     # using Hypernode Deploy, where `bin/magento` sits directly at $HOME.
     magento_root: str = 'current_root'
 
+    # VERIFIED (2026-08-20) against a real Brancher node: the parent app's
+    # own vhost has HTTP Basic Auth enforced, but a fresh vhost created by
+    # `hypernode-manage-vhosts` does NOT inherit it, and there is no
+    # self-service CLI/nginx-config mechanism to add it -- exhaustively
+    # checked (`hypernode-manage-vhosts --help` has no such flag,
+    # `hypernode-systemctl settings` has no basic-auth key, no active
+    # (uncommented) `auth_basic` directive exists anywhere in
+    # `/etc/nginx/`, and `/etc/nginx/app/<hostname>/` is root-owned so the
+    # `app` user can't add one). The enabling mechanism for the parent
+    # app's own vhost lives entirely outside the node (Hypernode's edge/
+    # routing layer, keyed to registered hostnames a Brancher-generated
+    # ephemeral hostname never becomes). An application-level gate in
+    # `pub/index.php` (which the `app` user DOES own) is therefore not a
+    # workaround but the only mechanism actually available here.
+    #
+    # Set to `None` to disable -- e.g. for a client already comfortable
+    # with an unauthenticated preview URL.
+    basic_auth_username: str | None = 'preview'
+
     # VERIFIED (2026-08-20) against a real Brancher node: setting base_url
     # at the default scope was NOT enough -- the live site still 301-
     # redirected back to the originating app's domain. `app/etc/env.php`
