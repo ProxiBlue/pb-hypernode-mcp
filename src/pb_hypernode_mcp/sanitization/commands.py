@@ -59,6 +59,20 @@ def _build_config_set_command(setting: GatewaySandboxSetting) -> str:
     return f'{CONFIG_SET_COMMAND} {setting.config_path} {shlex.quote(setting.sandbox_value)}'
 
 
+def _with_magento_root(config: SanitizationConfig, command: str) -> str:
+    """Prefix a `bin/magento`/`n98-magerun2` command with `cd <magento_root> &&`.
+
+    See `SanitizationConfig.magento_root`'s docstring for why this is
+    necessary — the CLI binaries are not reachable from $HOME on a Hypernode
+    Deploy-managed app. A falsy `magento_root` (empty string) means "run as
+    given, no `cd`" for apps not using Hypernode Deploy.
+    """
+    if not config.magento_root:
+        return command
+
+    return f'cd {shlex.quote(config.magento_root)} && {command}'
+
+
 def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> list[str]:
     """Return commands that point the node's base URL + nginx vhost at its own hostname.
 
@@ -76,13 +90,29 @@ def generate_url_setup_commands(hostname: str, config: SanitizationConfig) -> li
     the rest of this module's commands.
     """
     base_url = f'https://{hostname}/'
+    # --lock-env: VERIFIED (2026-08-20) against a real Brancher node --
+    # base_url is a "locked" config value there (common on Hypernode
+    # Deploy/CI-managed apps, to keep app/etc/env.php authoritative and
+    # prevent DB drift). A plain `config:set` on a locked path fails with
+    # "The value you set has already been locked." -- `--lock-env` both
+    # writes AND (re-)locks it, and is a harmless no-op flag against a path
+    # that was never locked in the first place.
     commands = [
-        f'{CONFIG_SET_COMMAND} {BASE_URL_UNSECURE_PATH} {shlex.quote(base_url)}',
-        f'{CONFIG_SET_COMMAND} {BASE_URL_SECURE_PATH} {shlex.quote(base_url)}',
-        CACHE_FLUSH_COMMAND,
+        _with_magento_root(
+            config,
+            f'{CONFIG_SET_COMMAND} --lock-env {BASE_URL_UNSECURE_PATH} {shlex.quote(base_url)}',
+        ),
+        _with_magento_root(
+            config,
+            f'{CONFIG_SET_COMMAND} --lock-env {BASE_URL_SECURE_PATH} {shlex.quote(base_url)}',
+        ),
+        _with_magento_root(config, CACHE_FLUSH_COMMAND),
     ]
 
     if config.vhost_webroot:
+        # NOT wrapped in `_with_magento_root` -- `hypernode-manage-vhosts` is
+        # a system-wide Hypernode CLI tool, not a Magento binary, and takes
+        # an absolute `--webroot` path already, so it is cwd-independent.
         commands.append(
             f'{VHOST_COMMAND} {shlex.quote(hostname)} --https --force-https '
             f'--type {shlex.quote(config.vhost_type)} --webroot {shlex.quote(config.vhost_webroot)}'
@@ -103,15 +133,20 @@ def generate_sanitization_commands(config: SanitizationConfig) -> list[str]:
     commands: list[str] = []
 
     for table in config.pii_tables:
-        commands.append(_build_update_sql(table))
+        commands.append(_with_magento_root(config, _build_update_sql(table)))
 
     if config.admin_user_reset is not None:
-        commands.append(_build_update_sql(config.admin_user_reset))
+        commands.append(_with_magento_root(config, _build_update_sql(config.admin_user_reset)))
+
+    if config.admin_primary_user_reset is not None:
+        commands.append(
+            _with_magento_root(config, _build_update_sql(config.admin_primary_user_reset))
+        )
 
     for setting in config.gateway_sandbox_settings:
-        commands.append(_build_config_set_command(setting))
+        commands.append(_with_magento_root(config, _build_config_set_command(setting)))
 
     for stub in config.api_key_stubs:
-        commands.append(_build_config_set_command(stub))
+        commands.append(_with_magento_root(config, _build_config_set_command(stub)))
 
     return commands

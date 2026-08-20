@@ -107,6 +107,45 @@ def test_it_generates_a_command_to_reset_admin_user_credentials_to_a_known_safe_
     )
 
 
+def test_it_applies_a_second_where_scoped_admin_reset_after_the_bulk_one_when_configured() -> (
+    None
+):
+    """VERIFIED (2026-08-20) against a real 15-row admin_user table: a bare
+    literal username on a bulk (no-`where`) UPDATE violates admin_user's
+    unique index the moment there's more than one admin row. The bulk pass
+    must use a per-row-unique expression; `admin_primary_user_reset` then
+    overrides exactly one row back to a literal, reportable identity."""
+    config = _minimal_config(
+        admin_user_reset=PiiTableSanitizer(
+            table='admin_user',
+            set_columns={'username': "CONCAT('admin-', user_id)"},
+        ),
+        admin_primary_user_reset=PiiTableSanitizer(
+            table='admin_user',
+            set_columns={'username': "'admin'"},
+            where='user_id = (SELECT MIN(t.user_id) FROM (SELECT user_id FROM admin_user) AS t)',
+        ),
+    )
+
+    commands = generate_sanitization_commands(config)
+
+    bulk_index = next(i for i, cmd in enumerate(commands) if "CONCAT('admin-', user_id)" in cmd)
+    primary_index = next(i for i, cmd in enumerate(commands) if "username = 'admin'" in cmd)
+
+    # Bulk pass must run BEFORE the primary override, or the override would
+    # be immediately clobbered back to a CONCAT value.
+    assert bulk_index < primary_index
+    assert 'WHERE user_id = (SELECT MIN(t.user_id)' in commands[primary_index]
+
+
+def test_it_omits_the_primary_admin_reset_command_when_not_configured() -> None:
+    config = _minimal_config()  # admin_primary_user_reset defaults to None
+
+    commands = generate_sanitization_commands(config)
+
+    assert not any('SELECT MIN(t.user_id)' in cmd for cmd in commands)
+
+
 def test_it_generates_a_bin_magento_config_set_command_to_force_the_payment_gateway_to_sandbox_per_the_config() -> (  # noqa: E501
     None
 ):
@@ -121,7 +160,10 @@ def test_it_generates_a_bin_magento_config_set_command_to_force_the_payment_gate
 
     commands = generate_sanitization_commands(config)
 
-    assert 'bin/magento config:set payment/braintree/environment sandbox' in commands
+    assert (
+        'cd current_root && bin/magento config:set payment/braintree/environment sandbox'
+        in commands
+    )
 
 
 def test_it_generates_commands_to_stub_each_configured_third_party_api_key_to_a_sandbox_dummy_value() -> (  # noqa: E501
@@ -142,8 +184,23 @@ def test_it_generates_commands_to_stub_each_configured_third_party_api_key_to_a_
 
     commands = generate_sanitization_commands(config)
 
-    assert 'bin/magento config:set carriers/shipperhq/api_key sandbox-dummy-key' in commands
-    assert 'bin/magento config:set tax/avatax/license_key dummy-license-key' in commands
+    assert (
+        'cd current_root && bin/magento config:set carriers/shipperhq/api_key sandbox-dummy-key'
+        in commands
+    )
+    assert (
+        'cd current_root && bin/magento config:set tax/avatax/license_key dummy-license-key'
+        in commands
+    )
+
+
+def test_it_skips_the_cd_current_root_prefix_when_magento_root_is_empty() -> None:
+    config = _minimal_config(magento_root='')
+
+    commands = generate_sanitization_commands(config)
+
+    assert not any('current_root' in cmd for cmd in commands)
+    assert any('UPDATE customer_entity SET' in cmd for cmd in commands)
 
 
 def test_it_generates_commands_to_point_the_nodes_base_url_at_its_own_hostname() -> None:
@@ -152,14 +209,14 @@ def test_it_generates_commands_to_point_the_nodes_base_url_at_its_own_hostname()
     commands = generate_url_setup_commands('myapp-eph123456.hypernode.io', config)
 
     assert (
-        'bin/magento config:set web/unsecure/base_url '
+        'cd current_root && bin/magento config:set --lock-env web/unsecure/base_url '
         'https://myapp-eph123456.hypernode.io/' in commands
     )
     assert (
-        'bin/magento config:set web/secure/base_url '
+        'cd current_root && bin/magento config:set --lock-env web/secure/base_url '
         'https://myapp-eph123456.hypernode.io/' in commands
     )
-    assert 'bin/magento cache:flush' in commands
+    assert 'cd current_root && bin/magento cache:flush' in commands
 
 
 def test_it_creates_a_vhost_for_the_node_when_vhost_webroot_is_configured() -> None:

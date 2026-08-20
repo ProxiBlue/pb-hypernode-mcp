@@ -47,6 +47,14 @@ DEFAULT_READY_PROBE_COMMAND = 'echo ready'
 DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS = 10.0
 DEFAULT_REACHABILITY_TIMEOUT_SECONDS = 1200.0
 
+# VERIFIED (2026-08-20) against a real Brancher node: `hypernode-manage-vhosts
+# --https` does a live Let's Encrypt ACME challenge/cert-issuance round trip
+# against an external CA -- a cold run (fresh account registration, fresh
+# per-domain authorization) exceeded 20s; `exec_command`'s own default (30s)
+# leaves too little margin. This is well within the overall ~20min spin-up
+# budget, so a generous per-command timeout costs little.
+DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS = 120.0
+
 ACCESS_URL_TEMPLATE = 'https://{node_name}.hypernode.io/'
 
 # Real Magento CLI command (`Magento\Backend\Console\Command\InfoAdminUriCommand`)
@@ -202,6 +210,7 @@ async def spinup_sanitized_brancher_node(
     ready_probe_command: str = DEFAULT_READY_PROBE_COMMAND,
     reachability_poll_interval: float = DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS,
     reachability_timeout: float = DEFAULT_REACHABILITY_TIMEOUT_SECONDS,
+    sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> dict[str, Any]:
@@ -260,7 +269,7 @@ async def spinup_sanitized_brancher_node(
     ) + generate_sanitization_commands(sanitization_config)
 
     for index, command in enumerate(commands):
-        result = await exec_command(node_name, command)
+        result = await exec_command(node_name, command, timeout=sanitization_command_timeout)
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
 
@@ -294,6 +303,7 @@ def register(
     ready_probe_command: str = DEFAULT_READY_PROBE_COMMAND,
     reachability_poll_interval: float = DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS,
     reachability_timeout: float = DEFAULT_REACHABILITY_TIMEOUT_SECONDS,
+    sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> None:
@@ -336,6 +346,7 @@ def register(
             ready_probe_command=ready_probe_command,
             reachability_poll_interval=reachability_poll_interval,
             reachability_timeout=reachability_timeout,
+            sanitization_command_timeout=sanitization_command_timeout,
             sleep=sleep,
             clock=clock,
         )

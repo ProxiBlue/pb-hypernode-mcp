@@ -234,6 +234,42 @@ async def test_it_creates_a_vhost_for_the_node_when_the_config_has_a_vhost_webro
     )
 
 
+class TimeoutRecordingExec:
+    """Fake `exec_command` that records the `timeout` kwarg passed to each call."""
+
+    def __init__(self) -> None:
+        self.timeouts: list[float | None] = []
+
+    async def __call__(
+        self, node_name: str, command: str, *, timeout: float | None = None, **_: Any
+    ) -> dict[str, Any]:
+        self.timeouts.append(timeout)
+
+        return {'stdout': '', 'stderr': '', 'exit_code': 0}
+
+
+async def test_it_passes_the_configured_sanitization_command_timeout_to_each_command() -> None:
+    exec_fn = TimeoutRecordingExec()
+    config = make_sanitization_config()
+
+    await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+        sanitization_command_timeout=180.0,
+    )
+
+    # calls[0] is the reachability probe (no explicit timeout override),
+    # calls[-1] the admin-path resolve (also no override) -- every command
+    # in between is a url-setup/sanitization command and must have received
+    # the configured timeout, e.g. so a slow real-world command (like
+    # hypernode-manage-vhosts' live ACME cert issuance) isn't cut short by
+    # exec_command's much shorter 30s default.
+    assert exec_fn.timeouts[1:-1] == [180.0] * (len(exec_fn.timeouts) - 2)
+
+
 class RespondingExec:
     """Fake `exec_command` that returns a configured stdout for one specific command."""
 
