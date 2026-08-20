@@ -317,6 +317,90 @@ async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
 
 
+class FlakyThenSucceedsExec:
+    """Fake `exec_command` that raises a connection-level error on the first
+    `fail_count` calls to ONE specific command, then succeeds -- simulates a
+    transient DNS/SSH blip mid-sanitization, verified live 2026-08-20."""
+
+    def __init__(self, *, flaky_command: str, fail_count: int) -> None:
+        self._flaky_command = flaky_command
+        self._fail_count = fail_count
+        self._flaky_attempts = 0
+        self.calls: list[tuple[str, str]] = []
+
+    async def __call__(self, node_name: str, command: str, **_: Any) -> dict[str, Any]:
+        self.calls.append((node_name, command))
+
+        if command == self._flaky_command and self._flaky_attempts < self._fail_count:
+            self._flaky_attempts += 1
+            raise ConnectionError('ssh: Could not resolve hostname ... No address associated')
+
+        return {'stdout': '', 'stderr': '', 'exit_code': 0}
+
+
+async def test_it_retries_a_sanitization_command_that_hits_a_transient_connection_failure() -> (
+    None
+):
+    config = make_sanitization_config()
+    flaky_command = generate_sanitization_commands(config)[0]
+    exec_fn = FlakyThenSucceedsExec(flaky_command=flaky_command, fail_count=2)
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+        sanitization_retry_delay_seconds=0.0,
+    )
+
+    assert result['status'] == 'ready'
+    flaky_calls = [c for c in exec_fn.calls if c[1] == flaky_command]
+    assert len(flaky_calls) == 3  # 2 failures + 1 success
+
+
+async def test_it_gives_up_after_exhausting_the_configured_sanitization_retries() -> None:
+    config = make_sanitization_config()
+    flaky_command = generate_sanitization_commands(config)[0]
+    exec_fn = FlakyThenSucceedsExec(flaky_command=flaky_command, fail_count=99)
+
+    with pytest.raises(ConnectionError):
+        await spinup_sanitized_brancher_node(
+            make_client(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=config,
+            exec_command=exec_fn,
+            sanitization_command_retries=2,
+            sanitization_retry_delay_seconds=0.0,
+        )
+
+    flaky_calls = [c for c in exec_fn.calls if c[1] == flaky_command]
+    assert len(flaky_calls) == 3  # 1 initial attempt + 2 retries, then gives up
+
+
+async def test_it_does_not_retry_a_command_that_ran_and_returned_a_non_zero_exit_code() -> None:
+    # A real command failure (bad SQL, missing binary, ...) is not a
+    # transient connectivity issue -- retrying it can't fix it, and doing so
+    # would only slow down an already-final SanitizationFailedError.
+    exec_fn = FailingAfterNExec(fail_at_call_index=1)
+    config = make_sanitization_config()
+
+    with pytest.raises(SanitizationFailedError):
+        await spinup_sanitized_brancher_node(
+            make_client(),
+            appname='myapp',
+            labels=['ticket-123'],
+            sanitization_config=config,
+            exec_command=exec_fn,
+            sanitization_retry_delay_seconds=0.0,
+        )
+
+    # calls[0] = probe, calls[1] = the 1st url-setup command (fails once,
+    # exit_code=1) -- exactly 2 calls total, no retry attempts appended.
+    assert len(exec_fn.calls) == 2
+
+
 class FailingAfterNExec:
     """Fake `exec_command` that fails a specific sanitization command by index."""
 

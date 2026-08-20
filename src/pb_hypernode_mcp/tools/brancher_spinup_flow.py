@@ -55,6 +55,17 @@ DEFAULT_REACHABILITY_TIMEOUT_SECONDS = 1200.0
 # budget, so a generous per-command timeout costs little.
 DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS = 120.0
 
+# VERIFIED (2026-08-20) against a real Brancher node: even AFTER the
+# reachability probe above has already succeeded once, a later sanitization
+# command can still hit a transient connection-level failure -- observed
+# live as a DNS flap (`ssh: Could not resolve hostname ... No address
+# associated with hostname`) that resolved again ~20s later on its own.
+# This is a connectivity blip, not a real command failure, so it gets a
+# short bounded retry rather than aborting the whole (otherwise-successful)
+# spin-up on one transient hiccup.
+DEFAULT_SANITIZATION_COMMAND_RETRIES = 3
+DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS = 5.0
+
 ACCESS_URL_TEMPLATE = 'https://{node_name}.hypernode.io/'
 
 # Real Magento CLI command (`Magento\Backend\Console\Command\InfoAdminUriCommand`)
@@ -181,6 +192,37 @@ async def _wait_until_reachable(
             await sleep(poll_interval)
 
 
+async def _exec_with_retry(
+    node_name: str,
+    command: str,
+    *,
+    exec_command: ExecCommandFn,
+    timeout: float,
+    retries: int,
+    retry_delay: float,
+    sleep: SleepFn,
+) -> dict[str, Any]:
+    """Run `command`, retrying a bounded number of times on a connection-level
+    failure (e.g. a transient DNS/SSH blip) before giving up.
+
+    Deliberately does NOT retry a command that ran and returned a non-zero
+    `exit_code` -- that's a real command/logic failure (bad SQL, a missing
+    binary, ...), not a transient connectivity issue, and should surface as
+    `SanitizationFailedError` immediately rather than being masked by
+    retries that can't possibly fix it.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return await exec_command(node_name, command, timeout=timeout)
+        except Exception:
+            if attempt >= retries:
+                raise
+
+            await sleep(retry_delay)
+
+    raise AssertionError('unreachable')  # loop always returns or raises above
+
+
 async def _resolve_admin_path(node_name: str, *, exec_command: ExecCommandFn) -> str:
     """Best-effort: parse the app's actual admin path via `bin/magento info:adminuri`.
 
@@ -211,6 +253,8 @@ async def spinup_sanitized_brancher_node(
     reachability_poll_interval: float = DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS,
     reachability_timeout: float = DEFAULT_REACHABILITY_TIMEOUT_SECONDS,
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
+    sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
+    sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> dict[str, Any]:
@@ -269,7 +313,15 @@ async def spinup_sanitized_brancher_node(
     ) + generate_sanitization_commands(sanitization_config)
 
     for index, command in enumerate(commands):
-        result = await exec_command(node_name, command, timeout=sanitization_command_timeout)
+        result = await _exec_with_retry(
+            node_name,
+            command,
+            exec_command=exec_command,
+            timeout=sanitization_command_timeout,
+            retries=sanitization_command_retries,
+            retry_delay=sanitization_retry_delay_seconds,
+            sleep=sleep,
+        )
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
 
@@ -304,6 +356,8 @@ def register(
     reachability_poll_interval: float = DEFAULT_REACHABILITY_POLL_INTERVAL_SECONDS,
     reachability_timeout: float = DEFAULT_REACHABILITY_TIMEOUT_SECONDS,
     sanitization_command_timeout: float = DEFAULT_SANITIZATION_COMMAND_TIMEOUT_SECONDS,
+    sanitization_command_retries: int = DEFAULT_SANITIZATION_COMMAND_RETRIES,
+    sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     sleep: SleepFn = asyncio.sleep,
     clock: ClockFn = time.monotonic,
 ) -> None:
@@ -347,6 +401,8 @@ def register(
             reachability_poll_interval=reachability_poll_interval,
             reachability_timeout=reachability_timeout,
             sanitization_command_timeout=sanitization_command_timeout,
+            sanitization_command_retries=sanitization_command_retries,
+            sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
             sleep=sleep,
             clock=clock,
         )

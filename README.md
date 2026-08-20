@@ -134,6 +134,8 @@ Every Hypernode needs its own entry in `HYPERNODE_API_TOKENS` — there is no ac
   4. **Payment gateway sandbox-forcing** — `bin/magento config:set` forces e.g. `payment/braintree/environment=sandbox`, `paypal/general/sandbox_flag=1`.
   5. **Third-party API key stubbing** — `bin/magento config:set` replaces live keys (e.g. AvaTax) with dummy sandbox values so no preview node can make a real charge or a real third-party API call under production credentials. ShipperHQ is deliberately excluded from this list (explicit client decision) — it stays on its live/production setting on every node, since it has no "developer mode" distinction to force it into.
 
+  Each command gets a bounded retry (3 attempts, 5s apart by default) if it hits a connection-level failure — verified live: a DNS record for a freshly created node can flap even after the SSH-reachability probe already succeeded once. A command that ran and returned a non-zero exit code is never retried (a real command failure, not a connectivity blip) — it fails `SanitizationFailedError` immediately.
+
   After all commands succeed, `brancher_create` makes one best-effort (non-blocking) call to `bin/magento info:adminuri` to report the node's actual `admin_url` — a failure or unexpected output here never fails spin-up, it just falls back to `/admin`.
 
   A real client app's exact table shape and installed integrations should override/extend `SanitizationConfig`, not rely on the shipped default in production — it exists as a safe-by-default starting point, not a promise it matches every schema.
