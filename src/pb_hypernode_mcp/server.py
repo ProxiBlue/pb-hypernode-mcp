@@ -67,7 +67,7 @@ def create_server() -> FastMCP:
     brancher_delete.register(server, lambda: (get_client(), get_settings()))
     brancher_exec.register(server)
     brancher_put.register(server)
-    brancher_spinup_flow.register(server, get_client)
+    brancher_spinup_flow.register(server, get_client, settings_factory=get_settings)
     brancher_apps.register(server, get_settings)
 
     return server

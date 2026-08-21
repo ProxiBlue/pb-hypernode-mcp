@@ -78,10 +78,22 @@ exposes.
      as if it were meaningful data, and do not claim to know the app's
      Brancher budget from this field.
    - `access_url` — the browsable site URL for the sanitized node
-   - `admin_url` — the admin login URL, resolved from the node's actual
-     `bin/magento info:adminuri` output (falls back to `/admin` if that
-     couldn't be parsed) — always report this alongside `access_url`, not
-     just the storefront link.
+   - `admin_url` — VERIFIED (2026-08-21) unreliable even after v0.5.1's
+     settle-delay fix: a real client-facing spin-up still returned the
+     `/admin` fallback here while a manual check moments later got the
+     real path instantly, no race even in play. The real, durable fix
+     (v0.5.2+) is `HYPERNODE_KNOWN_ADMIN_PATHS` — set the app's admin path
+     once (`{"myapp":"/admin-custom"}`) and `brancher_create` skips
+     runtime discovery entirely for that app, eliminating the race rather
+     than continuing to chase its timing. **If that env var isn't
+     configured for this app yet**, do not trust this field as-is: call
+     `brancher_exec(node_name, "cd current_root && n98-magerun2
+     info:adminuri")` after `brancher_create` returns, parse the real path
+     out of its stdout, and build the admin URL you report from THAT —
+     then tell the user to add the confirmed path to
+     `HYPERNODE_KNOWN_ADMIN_PATHS` so future spin-ups for this app skip
+     the check entirely. See the open tracking thread (chatroom) for
+     status.
    - `admin_username` / `admin_email` — the sanitized identity of the
      ORIGINAL admin account (`admin` / `admin@example.invalid` by default).
      This account is deliberately LOCKED (invalid password hash) — don't

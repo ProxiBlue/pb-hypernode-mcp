@@ -164,6 +164,25 @@ class SanitizationConfig:
     # live API key is deliberately left alone.
     disable_custom_admin_url: bool = True
 
+    # VERIFIED (2026-08-21): the admin path (`backend.frontName` in
+    # env.php) is set once at Magento install time and does not change
+    # between Brancher clones of the same source app -- it never needed
+    # per-spin-up runtime discovery in the first place. Dynamically
+    # resolving it via `info:adminuri` right after sanitization (see
+    # `_resolve_admin_path`) chases a genuine Hypernode-side async
+    # clone-sync race with no reliable upper bound -- three rounds of
+    # timing fixes (confirm-twice, settle delay, CLI tool switch, longer
+    # settle delay) all failed to fully close it, most recently confirmed
+    # live even with a 90s settle delay in place. If the client's admin
+    # path is already known (check once via SSH after any spin-up, or from
+    # existing documentation), set it here to skip runtime discovery
+    # entirely -- eliminates the whole race, not just narrows it. Format
+    # matches what `_resolve_admin_path` itself would have returned: a
+    # leading-slash path with no scheme/host (e.g. `/admin-uptactics`), not
+    # a full URL. `None` (the default) falls back to the existing
+    # best-effort dynamic resolution for a first-time/unknown app.
+    known_admin_path: str | None = None
+
     # A client's AI will make code edits over SSH against this node --
     # `generate_git_baseline_commands` initializes (or reuses, if
     # Hypernode Deploy already manages this app via git) a local repo,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from typing import Any
 
@@ -550,6 +551,29 @@ async def test_it_sleeps_the_configured_settle_delay_before_the_first_admin_path
     # be the very FIRST sleep call recorded overall -- not merely present
     # somewhere in the list.
     assert sleep_calls[0] == 42.0
+
+
+async def test_it_skips_runtime_admin_path_discovery_entirely_when_known_admin_path_is_set() -> (
+    None
+):
+    """VERIFIED (2026-08-21): three rounds of timing fixes (confirm-twice,
+    settle delay, CLI tool switch, longer settle delay) all failed to fully
+    close the Hypernode async clone-sync race -- an app whose admin path is
+    already known should skip runtime discovery entirely rather than keep
+    chasing an unbounded race."""
+    exec_fn = RecordingExec()
+    config = dataclasses.replace(make_sanitization_config(), known_admin_path='/admin-custom')
+
+    result = await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=config,
+        exec_command=exec_fn,
+    )
+
+    assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-custom'
+    assert not any('info:adminuri' in command for _node_name, command in exec_fn.calls)
 
 
 class FlakyThenSucceedsExec:
@@ -1134,3 +1158,64 @@ async def test_it_surfaces_a_clear_error_to_the_user_if_creation_or_sanitization
 
     with pytest.raises(ToolError, match='Sanitization failed'):
         await server.call_tool('brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']})
+
+
+async def test_settings_factory_known_admin_path_overrides_per_app_without_mutating_the_default() -> (  # noqa: E501
+    None
+):
+    """The per-app `HYPERNODE_KNOWN_ADMIN_PATHS` override (surfaced via
+    `settings_factory`) must apply only to the requesting app's call, never
+    mutate the shared `sanitization_config` default passed to `register()`
+    -- a second call for a DIFFERENT app must not see the first app's
+    override."""
+    exec_fn = RecordingExec()
+    base_config = make_sanitization_config()
+    server = FastMCP(name='test-server')
+    register(
+        server,
+        client_factory=lambda: make_client(),
+        sanitization_config=base_config,
+        exec_command=exec_fn,
+        admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
+        settings_factory=lambda: Settings(
+            hypernode_api_tokens={'myapp': 'test-token'},
+            hypernode_known_admin_paths={'myapp': '/admin-known'},
+        ),
+    )
+
+    _content, result = await server.call_tool(
+        'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
+    )
+
+    assert isinstance(result, dict)
+    assert result.get('admin_url') == 'https://myapp-eph123456.hypernode.io/admin-known'
+    assert base_config.known_admin_path is None
+
+
+async def test_settings_factory_with_no_matching_app_entry_falls_back_to_runtime_discovery() -> (
+    None
+):
+    exec_fn = RecordingExec()
+    server = FastMCP(name='test-server')
+    register(
+        server,
+        client_factory=lambda: make_client(),
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
+        settings_factory=lambda: Settings(
+            hypernode_api_tokens={'myapp': 'test-token'},
+            hypernode_known_admin_paths={'otherapp': '/admin-other'},
+        ),
+    )
+
+    _content, result = await server.call_tool(
+        'brancher_create', {'appname': 'myapp', 'labels': ['ticket-123']}
+    )
+
+    # RecordingExec's constant response for `n98-magerun2 info:adminuri` --
+    # falls back to normal runtime discovery since 'myapp' has no entry.
+    assert isinstance(result, dict)
+    assert result.get('admin_url') == 'https://myapp-eph123456.hypernode.io/admin'

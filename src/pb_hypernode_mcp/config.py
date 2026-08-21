@@ -6,6 +6,10 @@ account-wide, so this holds a JSON object mapping `<appname>` -> token, e.g.
 `HYPERNODE_API_TOKENS='{"myapp":"token1","myapp2":"token2"}'`. The map's keys
 ARE the allowlist — an app with no entry has no token to authenticate with,
 so it cannot be operated on. See `Settings.configured_apps` / `token_for()`.
+
+`HYPERNODE_KNOWN_ADMIN_PATHS` is an optional, separate per-app map, e.g.
+`HYPERNODE_KNOWN_ADMIN_PATHS='{"myapp":"/admin-custom"}'` — see
+`Settings.known_admin_path_for()`.
 """
 
 from __future__ import annotations
@@ -30,10 +34,30 @@ class Settings(BaseSettings):
 
     hypernode_api_tokens: dict[str, str] = Field(default_factory=dict)
 
+    # VERIFIED (2026-08-21): an app's admin path (`backend.frontName` in
+    # env.php) is fixed at Magento install time and never changes between
+    # Brancher clones of the same source app -- dynamically re-discovering
+    # it via `info:adminuri` on every spin-up chases a genuine Hypernode
+    # async clone-sync race with no reliable upper bound (see
+    # `SanitizationConfig.known_admin_path`'s docstring for the full
+    # history). Optional per-app map, e.g.
+    # `HYPERNODE_KNOWN_ADMIN_PATHS='{"myapp":"/admin-custom"}'` -- an app
+    # with no entry falls back to runtime discovery, so this is additive,
+    # never required.
+    hypernode_known_admin_paths: dict[str, str] = Field(default_factory=dict)
+
     @property
     def configured_apps(self) -> tuple[str, ...]:
         """Every `<appname>` with a configured token, sorted."""
         return tuple(sorted(self.hypernode_api_tokens))
+
+    def known_admin_path_for(self, appname: str) -> str | None:
+        """Return the configured known admin path for `appname`, if any.
+
+        `None` (not an error) when `appname` has no entry -- this is an
+        optional override, unlike `token_for()` which is a hard allowlist.
+        """
+        return self.hypernode_known_admin_paths.get(appname)
 
     def token_for(self, appname: str) -> str:
         """Return the API token configured for `appname`.

@@ -17,6 +17,7 @@ create a Brancher node that skips sanitization.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import re
 import secrets
 import time
@@ -26,7 +27,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from pb_hypernode_mcp.api_client import HypernodeApiClient
-from pb_hypernode_mcp.config import load_settings
+from pb_hypernode_mcp.config import Settings, load_settings
 from pb_hypernode_mcp.sanitization.commands import (
     generate_git_baseline_commands,
     generate_sanitization_commands,
@@ -449,15 +450,22 @@ async def spinup_sanitized_brancher_node(
         if result.get('exit_code') != 0:
             raise SanitizationFailedError(node_name, command, index)
 
-    admin_path = await _resolve_admin_path(
-        node_name,
-        exec_command=exec_command,
-        timeout=sanitization_command_timeout,
-        retries=admin_path_resolve_retries,
-        retry_delay=admin_path_resolve_retry_delay_seconds,
-        settle_delay=admin_path_resolve_settle_seconds,
-        sleep=resolved_sleep,
-    )
+    # If the caller already knows this app's admin path (see
+    # `SanitizationConfig.known_admin_path`'s docstring), skip runtime
+    # discovery entirely -- it eliminates the Hypernode async clone-sync
+    # race rather than continuing to chase its upper bound.
+    if sanitization_config.known_admin_path:
+        admin_path = sanitization_config.known_admin_path
+    else:
+        admin_path = await _resolve_admin_path(
+            node_name,
+            exec_command=exec_command,
+            timeout=sanitization_command_timeout,
+            retries=admin_path_resolve_retries,
+            retry_delay=admin_path_resolve_retry_delay_seconds,
+            settle_delay=admin_path_resolve_settle_seconds,
+            sleep=resolved_sleep,
+        )
 
     return {
         'node_name': node_name,
@@ -505,6 +513,7 @@ def register(
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
+    settings_factory: Callable[[], Settings] | None = None,
 ) -> None:
     """Register the `brancher_create` tool on `server`.
 
@@ -519,6 +528,15 @@ def register(
     `create_brancher_node`'s dependency shape, and the remaining
     keyword-only params default to production behaviour and exist so tests
     can inject fakes.
+
+    `settings_factory` (if given) is consulted per-call for
+    `Settings.known_admin_path_for(appname)` (`HYPERNODE_KNOWN_ADMIN_PATHS`)
+    — when set for the requested app, it overrides
+    `sanitization_config.known_admin_path` for that call only (via
+    `dataclasses.replace`, never mutating the shared default), skipping
+    runtime admin-path discovery entirely for apps whose admin path is
+    already known. `None` (the default) means no per-app override is
+    consulted at all, matching pre-existing behaviour exactly.
     """
 
     def default_factory() -> HypernodeApiClient:
@@ -535,12 +553,20 @@ def register(
         """Create a Brancher node, wait for it, sanitize it, and report it ready."""
         client = factory()
 
+        effective_sanitization_config = sanitization_config
+        if settings_factory is not None:
+            known_admin_path = settings_factory().known_admin_path_for(appname)
+            if known_admin_path:
+                effective_sanitization_config = dataclasses.replace(
+                    sanitization_config, known_admin_path=known_admin_path
+                )
+
         return await spinup_sanitized_brancher_node(
             client,
             appname,
             labels,
             clear_services,
-            sanitization_config=sanitization_config,
+            sanitization_config=effective_sanitization_config,
             exec_command=exec_command,
             ready_probe_command=ready_probe_command,
             reachability_poll_interval=reachability_poll_interval,

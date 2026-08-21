@@ -65,3 +65,25 @@ def test_it_raises_a_clear_error_listing_configured_apps_when_resolving_an_uncon
 
     assert 'myapp' in str(exc_info.value)
     assert 'myapp2' in str(exc_info.value)
+
+
+def test_it_parses_hypernode_known_admin_paths_as_a_json_appname_to_path_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp":"token1"}')
+    monkeypatch.setenv('HYPERNODE_KNOWN_ADMIN_PATHS', '{"myapp":"/admin-custom"}')
+
+    settings = load_settings()
+
+    assert settings.known_admin_path_for('myapp') == '/admin-custom'
+
+
+def test_known_admin_path_for_returns_none_not_an_error_when_app_has_no_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('HYPERNODE_API_TOKENS', '{"myapp":"token1"}')
+    monkeypatch.delenv('HYPERNODE_KNOWN_ADMIN_PATHS', raising=False)
+
+    settings = load_settings()
+
+    assert settings.known_admin_path_for('myapp') is None
