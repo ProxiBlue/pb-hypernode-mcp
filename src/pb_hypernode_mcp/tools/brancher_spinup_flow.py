@@ -86,14 +86,19 @@ DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS = 5.0
 
 ACCESS_URL_TEMPLATE = 'https://{node_name}.hypernode.io/'
 
-# VERIFIED (2026-08-20) against multiple real Brancher nodes: `bin/magento
-# info:adminuri` is susceptible to reporting a stale admin path (`/admin`
-# instead of the real, customized one) immediately after the sanitization
-# sequence -- root-caused across v0.4.4/v0.4.5 as either a Magento
-# config-cache race or a Hypernode clone-sync lag, neither fix actually
-# held up under repeat live testing. n98-magerun2's own `info:adminuri`
-# has been reliable on this account throughout -- switched to it instead of
-# continuing to chase timing workarounds around the Magento CLI command.
+# VERIFIED (2026-08-20/21) against multiple real Brancher nodes across
+# several rounds: `bin/magento info:adminuri` is susceptible to reporting a
+# stale admin path (`/admin` instead of the real, customized one)
+# immediately after the sanitization sequence. Switched to n98-magerun2's
+# own `info:adminuri` (v0.4.6) on the belief it read more reliably than
+# the Magento CLI -- that belief was WRONG, disproven the next day
+# (2026-08-21) by a peer bug report + live re-verification: n98-magerun2
+# hits the exact same stale-read window when invoked too early, it had
+# just never been caught because every prior spot-check happened to run
+# well after sanitization finished, not immediately during it. Kept as the
+# read command anyway (still correct once the underlying state is right,
+# no reason to revert that part) -- the real fix is the settle delay below,
+# not which CLI tool does the reading.
 ADMIN_URI_COMMAND = 'n98-magerun2 info:adminuri'
 DEFAULT_ADMIN_PATH = '/admin'
 _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
@@ -111,6 +116,20 @@ _ADMIN_PATH_PATTERN = re.compile(r'(/\S+)')
 # real path instead of silently guessing.
 DEFAULT_ADMIN_PATH_RESOLVE_RETRIES = 10
 DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS = 10.0
+
+# VERIFIED (2026-08-20) against a real Brancher node (ppsdev-ephy4kowy), with
+# hard filesystem-timestamp evidence: `app/etc/env.php` (which carries the
+# real custom admin `frontName`) was overwritten by Hypernode's own
+# asynchronous clone/deploy process (an ansible-driven "brancher install
+# hook") roughly 68-74s after that hook script itself landed on the node --
+# consistently measured across TWO separate live nodes. This is Hypernode's
+# own clone still finishing its file sync after SSH access already exists,
+# not a Magento cache race and not a `bin/magento`-vs-`n98-magerun2`
+# difference (RE-VERIFIED 2026-08-21: n98-magerun2 hits the same window).
+# A fixed settle delay before the FIRST read gives that sync a head start --
+# 90s comfortably clears the evidenced ~70s gap with margin, and costs
+# little against the overall ~20min spin-up ceiling.
+DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS = 90.0
 
 
 class BrancherSpinupError(Exception):
@@ -266,6 +285,7 @@ async def _resolve_admin_path(
     timeout: float,
     retries: int,
     retry_delay: float,
+    settle_delay: float,
     sleep: SleepFn,
 ) -> str:
     """Best-effort: parse the app's actual admin path via `n98-magerun2 info:adminuri`.
@@ -281,14 +301,21 @@ async def _resolve_admin_path(
     without ever retrying either. Fixed by retrying on ANY of exception /
     non-zero exit_code / unparseable stdout.
 
-    `bin/magento info:adminuri` itself turned out to be the wrong tool here
-    -- two separate live-tested attempts at working around its behaviour
-    (a two-consecutive-matching-reads check, then a fixed settle delay
-    before the first read) both failed to reliably produce the real admin
-    path. Switched to n98-magerun2's own `info:adminuri`, which has been
-    reliable on this account throughout -- see `ADMIN_URI_COMMAND`'s
-    docstring.
+    A prior attempt (v0.4.4/v0.4.5) at fixing the real underlying issue --
+    Hypernode's own clone/deploy process still finishing its file sync
+    after SSH access already exists -- via a two-consecutive-matching-reads
+    check, then a fixed settle delay, was abandoned in v0.4.6 in favor of
+    switching from `bin/magento` to `n98-magerun2 info:adminuri` on the
+    belief the latter read more reliably. RE-VERIFIED WRONG on 2026-08-21
+    via a peer bug report + live re-test: n98-magerun2 hits the exact same
+    stale-read window when invoked too early in the sync -- it had simply
+    never been caught because every prior spot-check happened to run well
+    after sanitization finished. The settle delay is reinstated here as the
+    actual fix; which CLI tool does the reading was never the real
+    variable.
     """
+    await sleep(settle_delay)
+
     for attempt in range(retries + 1):
         try:
             result = await exec_command(
@@ -326,6 +353,7 @@ async def spinup_sanitized_brancher_node(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
+    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -427,6 +455,7 @@ async def spinup_sanitized_brancher_node(
         timeout=sanitization_command_timeout,
         retries=admin_path_resolve_retries,
         retry_delay=admin_path_resolve_retry_delay_seconds,
+        settle_delay=admin_path_resolve_settle_seconds,
         sleep=resolved_sleep,
     )
 
@@ -472,6 +501,7 @@ def register(
     sanitization_retry_delay_seconds: float = DEFAULT_SANITIZATION_RETRY_DELAY_SECONDS,
     admin_path_resolve_retries: int = DEFAULT_ADMIN_PATH_RESOLVE_RETRIES,
     admin_path_resolve_retry_delay_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_RETRY_DELAY_SECONDS,
+    admin_path_resolve_settle_seconds: float = DEFAULT_ADMIN_PATH_RESOLVE_SETTLE_SECONDS,
     generate_password: PasswordGeneratorFn = _default_generate_password,
     sleep: SleepFn | None = None,
     clock: ClockFn = time.monotonic,
@@ -520,6 +550,7 @@ def register(
             sanitization_retry_delay_seconds=sanitization_retry_delay_seconds,
             admin_path_resolve_retries=admin_path_resolve_retries,
             admin_path_resolve_retry_delay_seconds=admin_path_resolve_retry_delay_seconds,
+            admin_path_resolve_settle_seconds=admin_path_resolve_settle_seconds,
             generate_password=generate_password,
             sleep=sleep,
             clock=clock,

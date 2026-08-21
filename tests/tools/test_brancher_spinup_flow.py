@@ -196,6 +196,7 @@ async def test_it_does_not_report_the_node_as_ready_until_sanitization_has_compl
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     # Reachability probe (1) + 5 url-setup commands (2x default-scope
@@ -221,6 +222,7 @@ async def test_it_runs_the_sanitization_command_sequence_exactly_once_per_create
         sanitization_config=config,
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     # calls[0] is the reachability probe, calls[-1] the best-effort
@@ -246,6 +248,7 @@ async def test_it_creates_a_vhost_for_the_node_when_the_config_has_a_vhost_webro
         sanitization_config=config,
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     commands_run = [command for _node_name, command in exec_fn.calls]
@@ -273,6 +276,7 @@ async def test_it_installs_basic_auth_using_the_injected_generated_password_and_
         exec_command=exec_fn,
         generate_password=lambda: 'fixed-test-password',
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     commands_run = [command for _node_name, command in exec_fn.calls]
@@ -295,6 +299,7 @@ async def test_it_reports_no_basic_auth_credentials_when_the_config_disables_it(
         sanitization_config=config,
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['preview_basic_auth_username'] is None
@@ -321,6 +326,7 @@ async def test_it_creates_a_real_admin_user_using_a_password_independent_from_ba
         exec_command=exec_fn,
         generate_password=lambda: next(passwords),
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     commands_run = [command for _node_name, command in exec_fn.calls]
@@ -347,6 +353,7 @@ async def test_it_reports_no_admin_user_credentials_when_the_config_disables_it(
         sanitization_config=config,
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['preview_admin_username'] is None
@@ -387,6 +394,7 @@ async def test_it_passes_the_configured_sanitization_command_timeout_to_each_com
         exec_command=exec_fn,
         sanitization_command_timeout=180.0,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     # calls[0] is the reachability probe (no explicit timeout override),
@@ -425,6 +433,7 @@ async def test_it_reports_the_admin_url_parsed_from_info_adminuri_output() -> No
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/backend-custom'
@@ -442,6 +451,7 @@ async def test_it_falls_back_to_the_default_admin_path_when_info_adminuri_output
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin'
@@ -478,6 +488,7 @@ async def test_it_retries_the_admin_path_resolve_call_on_a_transient_connection_
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-uptactics'
@@ -503,9 +514,42 @@ async def test_admin_path_resolve_retries_are_independent_of_sanitization_comman
         sanitization_command_retries=1,  # would NOT survive 5 failures
         admin_path_resolve_retries=5,  # but this budget does
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['admin_url'] == 'https://myapp-eph123456.hypernode.io/admin-uptactics'
+
+
+async def test_it_sleeps_the_configured_settle_delay_before_the_first_admin_path_read() -> None:
+    """REINSTATED 2026-08-21: v0.4.6 dropped the settle delay on the belief
+    that switching from `bin/magento` to `n98-magerun2 info:adminuri` alone
+    fixed the underlying Hypernode clone-sync race -- disproven by a peer
+    bug report + live re-test the next day, which caught n98-magerun2
+    reading the exact same stale pre-sync window. The settle delay must be
+    slept BEFORE the very first `info:adminuri` attempt, not just threaded
+    through as an unused parameter."""
+    exec_fn = RecordingExec()
+    sleep_calls: list[float] = []
+
+    async def recording_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    await spinup_sanitized_brancher_node(
+        make_client(),
+        appname='myapp',
+        labels=['ticket-123'],
+        sanitization_config=make_sanitization_config(),
+        exec_command=exec_fn,
+        admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=42.0,
+        sleep=recording_sleep,
+    )
+
+    # make_client()'s ip/ssh phases and RecordingExec's always-succeeding
+    # commands never need to sleep on their own, so the settle delay must
+    # be the very FIRST sleep call recorded overall -- not merely present
+    # somewhere in the list.
+    assert sleep_calls[0] == 42.0
 
 
 class FlakyThenSucceedsExec:
@@ -553,6 +597,7 @@ async def test_it_retries_a_sanitization_command_that_hits_a_transient_connectio
         exec_command=exec_fn,
         sanitization_retry_delay_seconds=0.0,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     assert result['status'] == 'ready'
@@ -575,6 +620,7 @@ async def test_it_gives_up_after_exhausting_the_configured_sanitization_retries(
             sanitization_command_retries=2,
             sanitization_retry_delay_seconds=0.0,
             admin_path_resolve_retry_delay_seconds=0.0,
+            admin_path_resolve_settle_seconds=0.0,
         )
 
     flaky_calls = [c for c in exec_fn.calls if c[1] == flaky_command]
@@ -597,6 +643,7 @@ async def test_it_does_not_retry_a_command_that_ran_and_returned_a_non_zero_exit
             exec_command=exec_fn,
             sanitization_retry_delay_seconds=0.0,
             admin_path_resolve_retry_delay_seconds=0.0,
+            admin_path_resolve_settle_seconds=0.0,
         )
 
     # calls[0] = probe, calls[1] = the 1st url-setup command (fails once,
@@ -636,6 +683,7 @@ async def test_it_surfaces_a_clear_failure_state_when_sanitization_fails_partway
             sanitization_config=config,
             exec_command=exec_fn,
             admin_path_resolve_retry_delay_seconds=0.0,
+            admin_path_resolve_settle_seconds=0.0,
         )
 
     assert exc_info.value.node_name == 'myapp-eph123456'
@@ -654,6 +702,7 @@ async def test_it_does_not_return_the_nodes_access_url_when_sanitization_has_fai
             sanitization_config=config,
             exec_command=exec_fn,
             admin_path_resolve_retry_delay_seconds=0.0,
+            admin_path_resolve_settle_seconds=0.0,
         )
 
     # The structural guarantee is no `access_url` attribute on the exception
@@ -958,6 +1007,7 @@ async def test_it_invokes_brancher_create_with_a_required_label_argument() -> No
         client_factory=lambda: make_client(),
         exec_command=RecordingExec(),
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     with pytest.raises(ToolError, match='label'):
@@ -973,6 +1023,7 @@ async def test_it_reports_the_node_url_and_ssh_info_to_the_user_after_creation_c
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     _content, result = await server.call_tool(
@@ -1015,6 +1066,7 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     _content, result = await server.call_tool(
@@ -1059,6 +1111,7 @@ async def test_it_surfaces_the_guardrail_checks_minutes_remaining_and_configured
         sanitization_config=make_sanitization_config(),
         exec_command=RecordingExec(),
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     with pytest.raises(ToolError, match='configured apps'):
@@ -1076,6 +1129,7 @@ async def test_it_surfaces_a_clear_error_to_the_user_if_creation_or_sanitization
         sanitization_config=make_sanitization_config(),
         exec_command=exec_fn,
         admin_path_resolve_retry_delay_seconds=0.0,
+        admin_path_resolve_settle_seconds=0.0,
     )
 
     with pytest.raises(ToolError, match='Sanitization failed'):

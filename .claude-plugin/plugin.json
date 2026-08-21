@@ -1,6 +1,6 @@
 {
   "name": "pb-hypernode-mcp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Client-side Claude Code plugin for Hypernode Brancher — spin up disposable prod-clone preview environments, drive AI-assisted changes over SSH, view via browser MCP. Bundles an MCP server (brancher_create/list/delete/ssh_info/exec/put/apps tools) plus three skills (brancher-spinup, brancher-preview, brancher-cleanup) orchestrating the spin-up to cleanup lifecycle. Mandatory automatic PII/gateway sanitization on every created node. Supports multiple Hypernodes, one API token per app.",
   "author": {
     "name": "Lucas van Staden",
